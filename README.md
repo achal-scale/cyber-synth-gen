@@ -23,7 +23,7 @@ python3 gate/oracle_noop_gate.py <task_dir>
 python3 gate/sandbox_escape_gate.py <task_dir>
     -> all three must pass before anything else proceeds
 
-python3 ops/launch_fleet.py <task_dir>              # STUB — not runnable yet, see its docstring
+python3 ops/launch_fleet.py <task_dir> --agent-cmd '<command that drives a model against the task>'
 python3 gate/fleet_gate.py <task_dir>
 
 python3 ops/package_deliverable.py <task_dir> <rubric_pipeline_path> [--skip-fleet]
@@ -41,11 +41,14 @@ is filled in after scaffolding, not inferred from those two strings alone.
 sandbox-escape) that must all pass, re-verified again at packaging time so a zip can't be
 produced from a task that was gated once and then edited afterward.
 
-**There is a pass@k step**: `gate/fleet_gate.py`, reading `trajectories/passk/<trial>/reward.txt`
-for v1's single-model pass@5. `ops/launch_fleet.py` is the script that would produce those
-trajectory files — it is currently a documented stub (see its docstring) because no agent
-harness is wired up yet to actually drive a model against a task; the gate and the packaging
-step are both written and tested against the trajectory layout it will produce.
+**There is a pass@k step**: `ops/launch_fleet.py` runs each trial end to end (boot the task under
+a unique Compose project, run the supplied `--agent-cmd` under its own deadline derived from
+`[agent].timeout_sec`, stage and run the verifier as root, read the reward, tear down), writing
+`trajectories/passk/<trial>/reward.txt`; `gate/fleet_gate.py` reads those files for v1's
+single-model pass@5. Live-tested end to end against a real task (see CHANGELOG for the real
+permission bug this caught and fixed). The one piece it does NOT supply is `--agent-cmd` itself
+— the actual command that drives a model against a booted task — which is organization-specific
+and passed in by the caller, not assumed or fabricated here.
 
 ## Where to work
 
@@ -59,7 +62,7 @@ step are both written and tested against the trajectory layout it will produce.
 | Package a task into a deliverable zip | [ops/package_deliverable.py](ops/package_deliverable.py) |
 | What QC grades (capability ladder, clustering, partial credit) | [environment-eval/](environment-eval/README.md) |
 
-## Status — what's real vs. still a stub
+## Status — what's real vs. still missing
 
 | Piece | State |
 | --- | --- |
@@ -69,7 +72,7 @@ step are both written and tested against the trajectory layout it will produce.
 | `gate/sandbox_escape_gate.py` | Real, live-tested (pass and GATE-STOP paths both verified; currently GATE-STOPs on every existing task in `batch_01`, since none are hardened yet — see CHANGELOG) |
 | `gate/fleet_gate.py` | Real, live-tested (blocked and measured paths both verified against synthetic fixtures) |
 | `ops/package_deliverable.py` | Real, live-tested (missing-path detection and zip/MANIFEST assembly both verified in isolation; full end-to-end run against a real task is blocked on no existing task yet clearing the sandbox-escape gate) |
-| `ops/launch_fleet.py` | Documented stub — no agent harness wired up |
+| `ops/launch_fleet.py` | Real, live-tested (full real-container lifecycle verified end to end with a dummy `--agent-cmd`; kill-at-budget path verified via isolated mock test). Missing only the org's actual agent-harness invocation string, which is a caller-supplied argument by design, not something this script assumes |
 | agent-env Task/Env graph wiring | Not started — everything above runs as standalone scripts, not yet an agent-env DAG |
 | Automated candidate sourcing | Not started — hand-curated per `sourcing/README.md`'s rules |
 
