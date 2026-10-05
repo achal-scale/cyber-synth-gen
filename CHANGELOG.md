@@ -107,3 +107,29 @@ rubrics were structurally unreachable in this pipeline. Fixed:
   `batch_01/dolibarr-B1-sqli`: correctly shows contract+oracle_noop passing while
   sandbox_escape/fleet/stage2 all report their real current failing state in one consolidated
   report.
+
+## Real agent-env adoption: ComposeEnv, live-tested against a real task
+
+Previously flagged (and the user chose to proceed anyway, understanding the cost): none of
+agent-env's built-in `Env` types fit our 4-service, non-protocol-speaking task shape.
+
+Investigated the installed package source directly (`uv tool install agentenv-framework`,
+v0.9.1267) rather than guessing, and found the real integration point: `LocalSandbox`
+(`providers/sandbox_providers/local_sandbox.py`) is a generic VM-mode sandbox whose work
+directory can hold an arbitrary `docker-compose.yml`, with its own `terminate()` already
+tearing one down if present.
+
+Wrote `agentenv_plugin/compose_env.py`'s `ComposeEnv(Env)`: copies a task's `environment/`
+directory onto a `LocalSandbox`'s work dir, boots it via the sandbox's own `exec_script`, resolves
+the published gateway port, and returns a `DeployedSandboxEnv` carrying the gateway URL in
+metadata (no agentenv_protocol "card" -- these are black-box HTTP tasks, not MCP tool-callers).
+
+Live-tested against a real copy of `batch_01/dolibarr-B1-sqli/environment` (not a fixture):
+deploy -> real Docker boot -> `GET /health` returned `200 {"status":"ok"}` -> `terminate()` ->
+independently confirmed via `docker ps`/`docker network ls` (not just a clean return value) that
+every container and network was actually gone.
+
+Not yet done: registering `ComposeEnv` through agent-env's actual config/registry and running it
+via a real `agent-env run <bundle>` Task (this was exercised as a standalone Python script, not
+through the framework's own CLI/DAG yet); converting `gate/*.py` into real `TaskStep`s;
+converting `ops/launch_fleet.py`'s trial loop into a `run_code`-style step.
