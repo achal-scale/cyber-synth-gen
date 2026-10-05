@@ -1,0 +1,5 @@
+[
+  {"id": "env", "type": "deploy_env", "env_id": "dolibarr-b1-sqli", "sandbox_type": "local"},
+  {"id": "check", "type": "run_code", "env_id": "dolibarr-b1-sqli",
+   "script_artifact_id": "verify_script", "result_id": "health"}
+]

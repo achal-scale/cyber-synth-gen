@@ -49,3 +49,14 @@ return) that every container and network was actually gone afterward.
 - **Not yet done**: wiring our `gate/*.py` scripts as agent-env `TaskStep`s, and
   `ops/launch_fleet.py`'s trial loop as a `run_code`-style step in a real Task graph, per the
   `gate/run_attempt.py` lesson from synth-gen.
+
+## Update: now also proven through a real Task, not just standalone Python
+
+See `../bundle/README.md`. `deploy_env` (real `ComposeEnv`) -> `run_code` (health check) ->
+automatic teardown, all run via `agent-env run ./bundle`, independently verified (result read
+back from the stored task instance: `status: 200, body: {"status":"ok"}`; `docker ps`/
+`docker network ls` confirmed clean after teardown).
+
+One real framework gap surfaced in the process: `run_code` has no way to receive
+`context.deployed_envs`' metadata (gateway_url, sandbox_id) -- worked around for this proof,
+documented in `bundle/README.md`, not fixed upstream.

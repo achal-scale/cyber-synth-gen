@@ -133,3 +133,28 @@ Not yet done: registering `ComposeEnv` through agent-env's actual config/registr
 via a real `agent-env run <bundle>` Task (this was exercised as a standalone Python script, not
 through the framework's own CLI/DAG yet); converting `gate/*.py` into real `TaskStep`s;
 converting `ops/launch_fleet.py`'s trial loop into a `run_code`-style step.
+
+## ComposeEnv proven through a real agent-env Task, not just standalone Python
+
+Registered `ComposeEnv` via `.agentenv/config.toml`'s `[envs] impls`, confirmed loading via
+`agent-env plugin check` (ok). Attempted the natural bundle-authoring path
+(`envs/dolibarr-b1-sqli/env.toml`) and hit a real framework limitation: bundles cannot author an
+env in this release at all (`writing an env isn't supported yet` -- the bundle writer table only
+implements artifacts/agents/evals). Worked around it correctly: registered the env directly via
+`ComposeEnv.put(...)`, then ran a real bundle (`bundle/tasks/compose_smoke.json`: `deploy_env` ->
+`run_code`) referencing it.
+
+Hit and fixed two more real issues along the way, each confirmed via the actual error before
+fixing (not guessed):
+- `run_code` shells out to the `timeout` coreutil, absent on macOS by default -- fixed via
+  `brew install coreutils` + the gnubin PATH prefix.
+- `run_code`'s `args` are static/author-time literals and `results` only holds prior `run_code`
+  outputs -- `context.deployed_envs`' metadata (our `gateway_url`) is never passed in, and there
+  is no templating mechanism. Worked around by having the script relocate the sandbox's work dir
+  itself (`~/.agent-env-sandboxes` glob for the one holding a `docker-compose.yml`); the real fix
+  (a framework change, or an instance-store query by env_id) is noted as follow-up in
+  `bundle/README.md`, not implemented.
+
+Final result, independently verified (not just a clean exit code): read the task instance's
+stored `script_results` directly -- `{"status": 200, "body": "{\"status\":\"ok\"}"}` -- then
+confirmed via `docker ps`/`docker network ls` that automatic teardown left nothing running.

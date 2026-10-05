@@ -1,0 +1,2 @@
+[envs]
+impls = ["agentenv_plugin.compose_env:ComposeEnv"]
