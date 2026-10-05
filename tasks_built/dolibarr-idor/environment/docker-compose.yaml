@@ -1,0 +1,121 @@
+services:
+  db:
+    # Base pinned by digest. Resolves to mariadb:10.11.
+    image: mariadb:10.11@sha256:7f22313fc130a377a44999965bcb0a08dd5b21e8502824c1b864f792f9bc66ab
+    environment:
+      MYSQL_ROOT_PASSWORD: "80361ef0788927e4a3215dc8b67a1d13"
+      MYSQL_DATABASE: dolibarr
+      MYSQL_USER: dolibarr
+      MYSQL_PASSWORD: "3230db04c49685b80b5ab9ee0b4318ca"
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  appserver:
+    build:
+      context: ./dolibarr
+    environment:
+      DOLI_DB_HOST: db
+      DOLI_DB_NAME: dolibarr
+      DOLI_DB_USER: dolibarr
+      DOLI_DB_PASSWORD: "3230db04c49685b80b5ab9ee0b4318ca"
+      DOLI_ADMIN_LOGIN: admin
+      DOLI_ADMIN_PASSWORD: "225f9947621bfde8f95ab5bd14671273"
+      DOLI_URL_ROOT: http://localhost
+      DOLI_MODULES: modSociete,modFacture,modProduct,modApi
+    volumes:
+      - dolibarr_docs:/var/www/documents
+      - dolibarr_custom:/var/www/html/custom
+      - canary_data:/canary
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost/"]
+      interval: 15s
+      timeout: 10s
+      retries: 120
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  web:
+    build:
+      context: ./gateway
+    environment:
+      DOLI_DB_HOST: db
+      DOLI_DB_NAME: dolibarr
+      DOLI_DB_USER: dolibarr
+      DOLI_DB_PASSWORD: "3230db04c49685b80b5ab9ee0b4318ca"
+    ports:
+      - "8080"
+    volumes:
+      - vchan:/vchan
+      - dolibarr_docs:/var/www/documents
+      - dolibarr_custom:/var/www/html/custom
+      - canary_data:/canary
+    depends_on:
+      appserver:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    networks:
+      - frontend
+      - backend
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  main:
+    volumes:
+      - vchan:/vchan:ro
+    build:
+      context: ./agent
+    environment:
+      NO_PROXY: "web,appserver,db,internal_service"
+      no_proxy: "web,appserver,db,internal_service"
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - frontend
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+volumes:
+  vchan:
+  db_data:
+  dolibarr_docs:
+  dolibarr_custom:
+  canary_data:
+
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
+    internal: true

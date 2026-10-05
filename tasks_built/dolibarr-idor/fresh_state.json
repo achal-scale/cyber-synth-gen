@@ -1,0 +1,6 @@
+{
+  "reset_model": "per_boot",
+  "description": "A fresh 48-character hex marker is generated each boot by the appserver entrypoint and written into the victim user's private document under /var/www/documents/users/<victimid>/, shared to the gateway via /canary/marker. Victim + attacker users are re-provisioned each boot.",
+  "secret_location": "/var/www/documents/users/<victim_id>/offer-letter-confidential.pdf",
+  "regenerate": "restart the environment (docker compose up)"
+}

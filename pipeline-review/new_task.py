@@ -123,6 +123,15 @@ TODO: exact payload/recipe, CWE/CVE, and sibling negative control that resists.
 
 """
 
+FRESH_STATE_TEMPLATE = """\
+{
+  "reset_model": "per_boot",
+  "description": "TODO: what gets regenerated each boot (a per-boot secret/marker, re-provisioned accounts, etc.) and where it's written.",
+  "secret_location": "TODO: path or endpoint the marker/secret lives at.",
+  "regenerate": "restart the environment (docker compose up)"
+}
+"""
+
 
 def scaffold(env: str, vuln_type: str, out: Path, cwe: str, cve: str, ticket: str) -> None:
     if out.exists():
@@ -145,6 +154,10 @@ def scaffold(env: str, vuln_type: str, out: Path, cwe: str, cve: str, ticket: st
         (out / sub).mkdir()
     for traj in ("oracle", "noop", "passk"):
         (out / "trajectories" / traj).mkdir(parents=True)
+
+    # Required by rubric_pipeline.py's F1/F6 checks (contract_gate) -- missing from this
+    # scaffold until a real task hit the gate and failed on it; see CHANGELOG.md.
+    (out / "fresh_state.json").write_text(FRESH_STATE_TEMPLATE)
 
     (out / "unintended_findings.json").write_text("{\n  \"alternate_paths\": []\n}\n")
 

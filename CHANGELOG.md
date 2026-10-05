@@ -192,3 +192,26 @@ fleet -> stage2 when not --skip-fleet). The gate script itself and its TaskStep 
 Re-verified: `batch_01/dolibarr-B1-sqli` now passes `qc_recheck.py --skip-fleet` cleanly (it was
 previously blocked here purely on unhardened containers, which was never a defect in the task
 itself).
+
+## First real task built via our own process: dolibarr/idor
+
+Scaffolded via `pipeline-review/new_task.py dolibarr idor`, with the real, already-verified
+vulnerability content (environment, solution, tests, instructions) ported in from
+`cyber-sample-tasks/batch_01/dolibarr-A1-idor` -- the point was to prove the generation process
+end to end, not to re-test an existing task.
+
+Re-verified fresh, not by trusting the ported trajectories: booted the real environment under a
+unique Compose project, ran the oracle (reward=1, real 48-hex marker recovered through the
+intended cross-user IDOR), reset verifier state and ran noop (reward=0, correctly refused), tore
+down cleanly (confirmed via `docker ps`).
+
+Running it through `ops/qc_recheck.py` found a real gap in our own scaffold, not a problem with
+the ported content: `new_task.py` never generated `fresh_state.json`, which
+`rubric_pipeline.py`'s F1 and F6 checks both require. Fixed `new_task.py` to scaffold one by
+default. Fixing it surfaced a second, self-inflicted bug: the first attempt used
+`.format()`-escaped double braces (`{{`/`}}`) in a template never actually passed through
+`.format()`, producing literal double braces in the output -- invalid JSON that looked fine on a
+visual check. Caught by actually parsing the generated file with `json.load()`, not just eyeballing
+it; fixed to single braces and re-verified by parsing again.
+
+`dolibarr-idor` now passes `qc_recheck.py --skip-fleet` cleanly (contract + oracle_noop both OK).
