@@ -4,9 +4,14 @@
     python3 ops/package_deliverable.py <task_dir> <rubric_pipeline_path> [--out out.zip]
                                         [--skip-fleet]
 
-Runs, in order: contract_gate -> oracle_noop_gate -> sandbox_escape_gate -> fleet_gate.
-Any gate raising GATE-STOP (or any other exception) stops packaging immediately and this
-script exits non-zero, printing which gate and why -- there is no partial/best-effort zip.
+Runs, in order: contract_gate -> oracle_noop_gate -> sandbox_escape_gate -> fleet_gate ->
+stage2_gate. Any gate raising GATE-STOP (or any other exception) stops packaging immediately and
+this script exits non-zero, printing which gate and why -- there is no partial/best-effort zip.
+
+stage2_gate runs last because it needs the same trajectories/passk/ data fleet_gate just
+confirmed is real (not bundle-blocked) -- it checks the three rubrics (TR4, TR5, EV6) that
+contract_gate deliberately excludes for exactly this reason. Skipped along with fleet_gate under
+--skip-fleet, since neither means anything without pass@k data.
 
 --skip-fleet is for a task still in construction, before ops/launch_fleet.py has produced any
 trajectories/passk/ results yet; the resulting zip is explicitly marked unfleeted in its manifest
@@ -31,6 +36,7 @@ import contract_gate
 import oracle_noop_gate
 import sandbox_escape_gate
 import fleet_gate
+import stage2_gate
 
 REQUIRED_PATHS = (
     "task.toml", "instruction.md", "instruction_L0.md", "instruction_L1.md", "instruction_L2.md",
@@ -62,6 +68,8 @@ def package(task_dir: Path, rubric_pipeline_path: str, out: Path, skip_fleet: bo
     ]
     if not skip_fleet:
         gates.append(("fleet", lambda: fleet_gate.run({"args": {"task_dir": str(task_dir)}})))
+        gates.append(("stage2", lambda: stage2_gate.run({"args": {
+            "task_dir": str(task_dir), "rubric_pipeline_path": rubric_pipeline_path}})))
 
     for name, fn in gates:
         try:

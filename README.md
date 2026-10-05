@@ -25,6 +25,7 @@ python3 gate/sandbox_escape_gate.py <task_dir>
 
 python3 ops/launch_fleet.py <task_dir> --agent-cmd '<command that drives a model against the task>'
 python3 gate/fleet_gate.py <task_dir>
+python3 gate/stage2_gate.py <task_dir> <rubric_pipeline_path>
 
 python3 ops/package_deliverable.py <task_dir> <rubric_pipeline_path> [--skip-fleet]
     -> re-runs every gate itself (does not trust that you ran them separately), and ONLY THEN

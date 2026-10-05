@@ -84,3 +84,26 @@ real MariaDB/Dolibarr stack, real verifier run) with a dummy `--agent-cmd "true"
 Not yet tested live: a real model actually solving the task via a real `--agent-cmd` (needs the
 org's actual agent-harness invocation, which this script takes as a caller-supplied argument and
 does not assume — see the module docstring).
+
+## Closed the TR4/TR5/EV6 gap, added standalone re-QC
+
+Found via direct question: contract_gate.py correctly excludes rubric_pipeline.STAGE2 (TR4, TR5,
+EV6) because they need pass@k data that doesn't exist at that point in the construction loop --
+but nothing ever checked them AFTER pass@k data existed either. Three of the project's 24-27
+rubrics were structurally unreachable in this pipeline. Fixed:
+
+- `gate/stage2_gate.py`: runs rubric_pipeline.check() filtered TO STAGE2 ids, meant to run after
+  fleet_gate.py confirms trajectories/passk/ is real. Live-tested against
+  `batch_01/dolibarr-B1-sqli` -- correctly GATE-STOPs naming TR4/TR5 (the same pre-existing,
+  repo-wide failing state confirmed earlier this project on an untouched reference task too, not
+  something this gate caused).
+- Wired into `ops/package_deliverable.py` as gate 5, skipped under `--skip-fleet` same as the
+  fleet gate. Re-verified the `--skip-fleet` path still stops at the same earlier gate
+  (sandbox_escape) as before, confirming stage2 is correctly never reached when skipped.
+- `ops/qc_recheck.py`: new standalone re-verify entry point (synth-gen's `qc-pipeline/`
+  equivalent) -- runs all five gates against an already-built task, independent of scaffolding
+  or packaging, and unlike every other gate script here does NOT stop at the first failure: it
+  runs every gate and reports the full current state in one pass. Live-tested against
+  `batch_01/dolibarr-B1-sqli`: correctly shows contract+oracle_noop passing while
+  sandbox_escape/fleet/stage2 all report their real current failing state in one consolidated
+  report.
