@@ -180,3 +180,15 @@ break teardown); resolved by retrying with a fresh random sandbox_id.
 
 `fleet_gate.py`/`stage2_gate.py` still not wired in -- both need real `trajectories/passk/` data,
 which still doesn't exist (blocked on `ops/launch_fleet.py --agent-cmd`, per its own docstring).
+
+## Dropped sandbox_escape_gate from the default pipeline
+
+Per direction: sandbox-escape hardening was specifically an FNA1 (customer feedback) requirement,
+not something core to this pipeline's own process. Removed it from `ops/package_deliverable.py`'s
+and `ops/qc_recheck.py`'s default gate sequences -- both now run contract -> oracle_noop (->
+fleet -> stage2 when not --skip-fleet). The gate script itself and its TaskStep wiring in
+`bundle/tasks/gates_smoke.json` are untouched, for whoever still needs it later.
+
+Re-verified: `batch_01/dolibarr-B1-sqli` now passes `qc_recheck.py --skip-fleet` cleanly (it was
+previously blocked here purely on unhardened containers, which was never a defect in the task
+itself).

@@ -17,6 +17,10 @@ non-zero and a printed summary otherwise.
 `--skip-fleet` skips fleet_gate.py and stage2_gate.py (both need trajectories/passk/ to mean
 anything); without it, a task with no pass@k data yet still reports those two as failing, which
 is the correct, honest state to show -- not an error in this tool.
+
+sandbox_escape_gate was dropped from this default sequence (FNA1-driven, not core to this
+pipeline's own process) -- still exists in `gate/`, still wired into
+`bundle/tasks/gates_smoke.json`, just not required here.
 """
 import argparse
 import sys
@@ -26,7 +30,6 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "gate"))
 import contract_gate
 import oracle_noop_gate
-import sandbox_escape_gate
 import fleet_gate
 import stage2_gate
 
@@ -36,7 +39,6 @@ def recheck(task_dir: Path, rubric_pipeline_path: str, skip_fleet: bool) -> dict
         ("contract", lambda: contract_gate.run({"args": {
             "task_dir": str(task_dir), "rubric_pipeline_path": rubric_pipeline_path}})),
         ("oracle_noop", lambda: oracle_noop_gate.run({"args": {"task_dir": str(task_dir)}})),
-        ("sandbox_escape", lambda: sandbox_escape_gate.run({"args": {"task_dir": str(task_dir)}})),
     ]
     if not skip_fleet:
         gates.append(("fleet", lambda: fleet_gate.run({"args": {"task_dir": str(task_dir)}})))

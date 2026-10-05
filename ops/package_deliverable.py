@@ -4,9 +4,13 @@
     python3 ops/package_deliverable.py <task_dir> <rubric_pipeline_path> [--out out.zip]
                                         [--skip-fleet]
 
-Runs, in order: contract_gate -> oracle_noop_gate -> sandbox_escape_gate -> fleet_gate ->
-stage2_gate. Any gate raising GATE-STOP (or any other exception) stops packaging immediately and
-this script exits non-zero, printing which gate and why -- there is no partial/best-effort zip.
+Runs, in order: contract_gate -> oracle_noop_gate -> fleet_gate -> stage2_gate. Any gate raising
+GATE-STOP (or any other exception) stops packaging immediately and this script exits non-zero,
+printing which gate and why -- there is no partial/best-effort zip.
+
+sandbox_escape_gate was dropped from this default sequence (it was specifically an FNA1-driven
+requirement, not core to this pipeline's own process) -- the script still exists in `gate/` and
+is still wired into `bundle/tasks/gates_smoke.json` for whoever needs it, just not required here.
 
 stage2_gate runs last because it needs the same trajectories/passk/ data fleet_gate just
 confirmed is real (not bundle-blocked) -- it checks the three rubrics (TR4, TR5, EV6) that
@@ -34,7 +38,6 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "gate"))
 import contract_gate
 import oracle_noop_gate
-import sandbox_escape_gate
 import fleet_gate
 import stage2_gate
 
@@ -64,7 +67,6 @@ def package(task_dir: Path, rubric_pipeline_path: str, out: Path, skip_fleet: bo
         ("contract", lambda: contract_gate.run({"args": {
             "task_dir": str(task_dir), "rubric_pipeline_path": rubric_pipeline_path}})),
         ("oracle_noop", lambda: oracle_noop_gate.run({"args": {"task_dir": str(task_dir)}})),
-        ("sandbox_escape", lambda: sandbox_escape_gate.run({"args": {"task_dir": str(task_dir)}})),
     ]
     if not skip_fleet:
         gates.append(("fleet", lambda: fleet_gate.run({"args": {"task_dir": str(task_dir)}})))
