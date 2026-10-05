@@ -59,3 +59,31 @@ the sandbox's work dir itself (globbing `~/.agent-env-sandboxes` for the one hol
 URL from the step that deployed it. A real fix would be either a framework change (pass
 `deployed_envs` into `run_code`'s input) or a proper instance-store query by `env_id` instead of
 a directory glob -- noted as follow-up, not fixed here.
+
+## `tasks/gates_smoke.json`: the 3 file-based gates as real TaskSteps
+
+`contract_gate.py`, `oracle_noop_gate.py`, and `sandbox_escape_gate.py` already matched
+`run_code`'s `run(input) -> JSON` contract exactly (no changes needed) -- they're packaged as
+FileArtifacts (`artifacts/{contract,oracle_noop,sandbox_escape}_gate/script.py`, copied verbatim
+from `gate/`) and run as `run_code` steps against the same deployed `dolibarr-b1-sqli` env,
+`task_dir`/`rubric_pipeline_path` passed as static `args` (these are author-time-known absolute
+paths, unlike `gateway_url` -- no workaround needed here).
+
+`fleet_gate.py` and `stage2_gate.py` aren't wired in yet: both need `trajectories/passk/` data,
+which doesn't exist for any task yet (`ops/launch_fleet.py --agent-cmd` still needs a real
+agent-harness invocation to produce it -- see its own docstring).
+
+Live-tested (`agent-env run ./bundle --task gates_smoke`): `contract` and `oracle_noop` both
+passed; `sandbox_escape` failed with the exact same GATE-STOP message as every standalone run
+this session (`batch_01/dolibarr-B1-sqli` is still unhardened) -- confirming the TaskStep wiring
+faithfully reproduces the scripts' standalone behavior, not a different code path. The task
+correctly failed overall (gate 4 of 4), and teardown still ran automatically even on failure
+(independently confirmed via `docker ps` after -- clean).
+
+Hit one unrelated, non-reproducible flake along the way: `LocalSandbox`'s auto-generated work-dir
+name is derived from `tempfile.mkdtemp`, whose random suffix charset includes `_` -- one draw
+produced a directory name Docker's image-reference parser rejected (`invalid reference format`)
+when Compose derived the project name from it (no explicit `-p`, matching `LocalSandbox.terminate()`'s
+own convention, which this plugin must not diverge from or teardown would target the wrong
+project). A framework-level flake, not something to work around in this plugin; retrying with a
+fresh random sandbox_id resolved it immediately.

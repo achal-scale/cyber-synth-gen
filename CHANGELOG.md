@@ -158,3 +158,25 @@ fixing (not guessed):
 Final result, independently verified (not just a clean exit code): read the task instance's
 stored `script_results` directly -- `{"status": 200, "body": "{\"status\":\"ok\"}"}` -- then
 confirmed via `docker ps`/`docker network ls` that automatic teardown left nothing running.
+
+## Gate scripts wired in as real TaskSteps
+
+`contract_gate.py`, `oracle_noop_gate.py`, `sandbox_escape_gate.py` already matched `run_code`'s
+`run(input) -> JSON` contract with zero changes needed -- packaged as FileArtifacts and run as
+`run_code` steps in a new `bundle/tasks/gates_smoke.json`, against the same `dolibarr-b1-sqli`
+env deployment. `task_dir`/`rubric_pipeline_path` are static author-time paths, so (unlike
+`gateway_url`) no workaround was needed to pass them in.
+
+Live-tested end to end: `contract` and `oracle_noop` passed; `sandbox_escape` failed with the
+identical GATE-STOP message every standalone run this session has produced (confirming the
+TaskStep wiring is faithful, not a different code path), the task correctly failed overall, and
+teardown still ran automatically on failure (confirmed clean via `docker ps`).
+
+Hit one unrelated flake: `LocalSandbox`'s auto-generated work-dir name (via `tempfile.mkdtemp`,
+whose suffix charset includes `_`) occasionally produces a name Docker's image-reference parser
+rejects when Compose derives the project name from it. Framework-level, not fixable from this
+plugin without diverging from `LocalSandbox.terminate()`'s own naming convention (which would
+break teardown); resolved by retrying with a fresh random sandbox_id.
+
+`fleet_gate.py`/`stage2_gate.py` still not wired in -- both need real `trajectories/passk/` data,
+which still doesn't exist (blocked on `ops/launch_fleet.py --agent-cmd`, per its own docstring).

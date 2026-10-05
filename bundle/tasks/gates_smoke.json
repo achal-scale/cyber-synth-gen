@@ -1,0 +1,12 @@
+[
+  {"id": "env", "type": "deploy_env", "env_id": "dolibarr-b1-sqli", "sandbox_type": "local"},
+  {"id": "contract", "type": "run_code", "env_id": "dolibarr-b1-sqli",
+   "script_artifact_id": "contract_gate", "result_id": "contract",
+   "args": {"task_dir": "/Users/achal.gandhi/Downloads/stateful_engineering_qhs/active/_scratch_repos/cyber-sample-tasks/batch_01/dolibarr-B1-sqli", "rubric_pipeline_path": "/Users/achal.gandhi/Downloads/stateful_engineering_qhs/active/_scratch_repos/cyber-sample-tasks/tools/rubric_pipeline.py"}},
+  {"id": "oracle_noop", "type": "run_code", "env_id": "dolibarr-b1-sqli",
+   "script_artifact_id": "oracle_noop_gate", "result_id": "oracle_noop",
+   "args": {"task_dir": "/Users/achal.gandhi/Downloads/stateful_engineering_qhs/active/_scratch_repos/cyber-sample-tasks/batch_01/dolibarr-B1-sqli"}},
+  {"id": "sandbox_escape", "type": "run_code", "env_id": "dolibarr-b1-sqli",
+   "script_artifact_id": "sandbox_escape_gate", "result_id": "sandbox_escape",
+   "args": {"task_dir": "/Users/achal.gandhi/Downloads/stateful_engineering_qhs/active/_scratch_repos/cyber-sample-tasks/batch_01/dolibarr-B1-sqli"}}
+]
