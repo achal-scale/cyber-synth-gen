@@ -32,3 +32,26 @@
 - Not yet built: agent-env Task/Env graph wiring (sourcing/pipeline-review mechanics are
   documented contracts, not executable graphs yet), automated candidate sourcing, multi-model
   fleet stages, delivery/report generation.
+
+## v1 fixes after review (same session)
+
+Flagged in review: no actual (env, vuln_type) input entry point existed, and no zip-packaging
+step existed — both real gaps, not nitpicks. Fixed:
+
+- `pipeline-review/new_task.py`: scaffolds a new task from exactly `<env> <vuln_type>
+  <output_dir>` plus optional `--cwe`/`--cve`/`--ticket`. Live-tested: correct file/directory
+  layout, correct task.toml field substitution. Does not auto-inject the vulnerability itself —
+  that remains real per-task engineering work, consistent with the "injecting the vulnerability
+  is where the most work is" point raised earlier in this project; the script fixes the input
+  contract and removes boilerplate, not the judgment work.
+- `ops/package_deliverable.py`: re-runs all four gates itself (does not trust a prior separate
+  run) and only zips `task_dir` into a deliverable if every one passes; refuses on any missing
+  required file. Adds a `MANIFEST.json` at the zip root recording each gate's verdict, so a
+  reviewer can confirm the zip they received is what the gates actually checked. Live-tested:
+  missing-required-paths detection (positive and negative), and the zip/MANIFEST assembly logic
+  in isolation (full end-to-end run against a real task is currently blocked on no task in
+  `batch_01` yet clearing the sandbox-escape gate — expected, not a bug, since that hardening
+  work is itself still outstanding).
+- Also closed a gap in `gate/sandbox_escape_gate.py`'s own test coverage: its passing path had
+  never actually been exercised (only the GATE-STOP path had). Tested now with a synthetic
+  hardened compose fixture — confirmed correct.
