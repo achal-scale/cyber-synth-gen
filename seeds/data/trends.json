@@ -1,0 +1,37 @@
+[
+  {
+    "id": "trend-1",
+    "name": "#AI",
+    "post_count": 0,
+    "created_at": "2024-01-01T00:00:00",
+    "updated_at": "2026-02-27T16:20:30"
+  },
+  {
+    "id": "trend-2",
+    "name": "#TechNews",
+    "post_count": 0,
+    "created_at": "2024-01-01T00:00:00",
+    "updated_at": "2026-02-27T16:20:30"
+  },
+  {
+    "id": "trend-3",
+    "name": "#coding",
+    "post_count": 0,
+    "created_at": "2024-01-01T00:00:00",
+    "updated_at": "2026-02-27T16:20:30"
+  },
+  {
+    "id": "trend-4",
+    "name": "#devlife",
+    "post_count": 0,
+    "created_at": "2024-01-01T00:00:00",
+    "updated_at": "2026-02-27T16:20:30"
+  },
+  {
+    "id": "trend-5",
+    "name": "#build",
+    "post_count": 0,
+    "created_at": "2024-01-01T00:00:00",
+    "updated_at": "2026-02-27T16:20:30"
+  }
+]
