@@ -7,12 +7,20 @@ import urllib.request
 import urllib.error
 
 APPSERVER = os.environ.get("APPSERVER_URL", "http://appserver:8000")
-# Single source of truth: the per-boot marker seed-init wrote to /seed. Read
-# fail-closed -- no random/sentinel fallback.
-try:
-    MARKER = open("/seed/marker").read().strip()
-except OSError:
-    MARKER = ""
+# Single source of truth: the per-boot marker seed-init wrote to /seed. Retry
+# briefly in case seed-init's container launch hasn't finished writing it yet
+# (a container-orchestration dependency only guarantees the launch happened,
+# not that a one-shot entrypoint has completed) -- still fail-closed, no
+# random/sentinel fallback, just not on the very first read.
+MARKER = ""
+for _attempt in range(30):
+    try:
+        MARKER = open("/seed/marker").read().strip()
+    except OSError:
+        MARKER = ""
+    if MARKER:
+        break
+    time.sleep(1)
 
 USERNAME = "contractor_sam"
 PASSWORD = "Contractor-" + "pw-9x37Q"
