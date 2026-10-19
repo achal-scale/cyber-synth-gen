@@ -8,25 +8,25 @@ NOT inject the vulnerability, write any scaffold file, or boot docker-compose in
 this stage; later stages do that.
 
 **If this turn times out, you will be re-invoked as a brand-new conversation with
-no memory of this one.** Before doing any work, check `/work/task/environment`
+no memory of this one.** Before doing any work, check `/app/task/environment`
 for directories already fetched by an earlier attempt and skip re-fetching ones
 that already exist and look complete.
 
 **Application**: {APP_DESCRIPTION}
 
 ```
-mkdir -p /work/task/environment
-cd /work/task/environment || { echo "FATAL: /work/task/environment does not exist after mkdir -- do not continue, investigate why (permissions? /work not writable? a pre-existing file at /work?) and report the real error"; exit 1; }
-pwd   # MUST print /work/task/environment -- if it doesn't, stop and fix this before going any further
+mkdir -p /app/task/environment
+cd /app/task/environment || { echo "FATAL: /app/task/environment does not exist after mkdir -- do not continue, investigate why (permissions? /app not writable? a pre-existing file at /app?) and report the real error"; exit 1; }
+pwd   # MUST print /app/task/environment -- if it doesn't, stop and fix this before going any further
 {BASE_CONTEXT_FETCH_COMMANDS}
 ```
 
 **Every remaining stage in this pipeline hardcodes the absolute path
-`/work/task/...`.** If the `pwd` above doesn't print `/work/task/environment`,
+`/app/task/...`.** If the `pwd` above doesn't print `/app/task/environment`,
 every later stage (including ones run by a completely different, fresh agent
 with no memory of this conversation) will silently look in the wrong place
 and fail. Do not improvise a different location and continue anyway -- if
-`/work` genuinely cannot be created or written to, STOP and state that exact
+`/app` genuinely cannot be created or written to, STOP and state that exact
 error in your final chat response instead of working around it silently.
 
 Each directory you just populated is one service's **pre-injection** source (no

@@ -1,7 +1,7 @@
 # Construction stage 2a/4: boot the environment
 
 A previous stage (a separate turn, same machine) already wrote the full task
-scaffold at `/work/task/` — read `/work/task/task.toml` now to re-orient
+scaffold at `/app/task/` — read `/app/task/task.toml` now to re-orient
 yourself before doing anything else. Do not re-do the vulnerability injection
 or re-write the scaffold; your only job this stage is getting the stack
 booted and healthy. Oracle/noop/negative-control checks are separate later
@@ -13,7 +13,7 @@ to see if the stack is already built/running from an earlier attempt before
 re-running `up --build` from scratch.
 
 ```
-cd /work/task/environment
+cd /app/task/environment
 docker compose -p construction up -d --build --wait
 ```
 

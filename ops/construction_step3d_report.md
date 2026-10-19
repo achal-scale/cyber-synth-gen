@@ -21,7 +21,7 @@ Write a structured summary to `/logs/verifier/construction_report.json`
   "qc_exit_code": 0,
   "qc_fail_count": 0,
   "qc_notes": "<any FAIL/WARN you judged to be a false positive, and why>",
-  "task_dir": "/work/task"
+  "task_dir": "/app/task"
 }
 ```
 

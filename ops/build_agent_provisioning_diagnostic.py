@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
-"""Cheap, isolated diagnostic: deploy ONE construction-agent (same config as
-the real pipeline's deploy-construction-agent step -- a2a_agent_id=
-"claude-code-cli", enable_docker=True) and immediately run a single diagnostic
-prompt, to confirm/characterize the "uid=999, no /work, no sudo, dind sidecar"
-provisioning regression seen on 3 consecutive real pipeline runs (v1-original,
-v2, v1-relaunch), independent of any construction-template content.
+"""Cheap, isolated diagnostic -- v2: deploy ONE construction-agent via
+install_agent (host mode: no container_name), the fix for the "uid=999, no
+/work, no sudo, dind sidecar" blocker seen on every real pipeline run so far.
+
+Root cause (confirmed by reading the real claude-code-cli agent image source,
+scaleapi/synthetic-pipelines a2a_agents/claude_code/{Dockerfile,CLAUDE.md}):
+deploy_agent's enable_docker=True runs the agent in its OWN sandboxed
+container (non-root `agent` user by design, no docker CLI ever installed in
+the image, enable_docker's dind sidecar unreachable without a CLI). The
+documented working path for a construction job that needs real docker is
+install_agent in HOST mode, which installs this same agent directly onto the
+VM as root, using the VM's own already-installed docker. Expect this run to
+show: root (or whichever host user), /app writable, and the VM's real `docker`
+CLI working.
 """
 import argparse
 import sys
@@ -22,11 +30,12 @@ DIAG_PROMPT = (
     "nothing else:\n"
     "```\n"
     "whoami && id\n"
-    "ls -la /\n"
-    "mkdir -p /work/task 2>&1; echo mkdir_exit=$?\n"
+    "pwd\n"
+    "mkdir -p /app/task 2>&1; echo mkdir_exit=$?\n"
+    "touch /app/task/probe.txt 2>&1; echo touch_exit=$?\n"
     "which docker; echo docker_cli_exit=$?\n"
-    "env | grep -i docker\n"
     "docker version 2>&1; echo docker_version_exit=$?\n"
+    "docker run --rm hello-world 2>&1 | tail -5; echo docker_run_exit=$?\n"
     "which sudo; echo sudo_exit=$?\n"
     "ls -la /app /workspace 2>&1\n"
     "cat /etc/os-release 2>&1 | head -3\n"
@@ -43,9 +52,9 @@ def build_steps() -> list[dict]:
             "exposed_ports": [8080, 8000], "ttl_seconds": 1800,
         },
         {
-            "id": "deploy-agent", "type": "deploy_agent",
+            "id": "deploy-agent", "type": "install_agent",
             "a2a_agent_id": "claude-code-cli", "agent_name": AGENT_NAME,
-            "sandbox_name": SANDBOX_NAME, "enable_docker": True,
+            "sandbox_name": SANDBOX_NAME,
             "depends_on": [{"task_step_id": "deploy-sandbox"}],
         },
         {

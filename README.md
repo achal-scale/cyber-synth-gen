@@ -77,49 +77,16 @@ and passed in by the caller, not assumed or fabricated here.
 | agent-env Task/Env graph wiring | **Local-only**: `agentenv_plugin/compose_env.py` registers a docker-compose env against a local agent-env CLI run. Real hub graphs are a separate, newer effort — see below |
 | Automated candidate sourcing | Not started — hand-curated per `sourcing/README.md`'s rules |
 
-## Hub pipeline (`ops/hub.py`, `ops/build_hub_task.py`) — status, 2026-10-06
+## Hub pipeline (`ops/drive_full_pipeline.py`) — status, 2026-10-19
 
-A second, newer track: running this repo's tasks as real step-DAGs on the hosted
-`agent-env-hub` (`agent-env-hub.internal.scale.com`), the way `dcueva-scale/synth-gen`'s
-production pipeline does, instead of only locally via `ops/launch_fleet.py`.
-
-**Proven real** (live-tested against the actual hub this session, not assumed from docs):
-- Auth: `ops/hub.py`'s `mint()`/`call()` (AWS SigV4 STS → `s2sauth` JWT → hub REST). Confirmed
-  with a real `GET /api/v1/tasks?project_id=...` returning 200.
-- `deploy_agent(enable_docker=true)` gives real root Docker access inside the sandbox — not
-  assumed from docs, confirmed by reading a real measurement (`rsi-probe-capabilities`, an
-  artifact published by `synth-gen`'s own capability probe on 2026-08-27: `docker info`/`docker
-  ps` both answered, uid 0).
-- `ops/build_hub_task.py` generates a fleet-shaped step DAG (N legs × 5 steps: deploy → setup →
-  pentest → collect → verify) from any of this repo's Harbor task bundles, and
-  `cyber-synth-gen-dolibarr-idor-fleet` (3 legs, 15 steps) is published and live on the hub under
-  project `6a97344cdf04bf9f053a4098` as proof.
-- `ops/generate_from_sheet.py` is the general entry point on top of `build_hub_task.py`: a CSV
-  of `env,vuln_type[,cwe,cve,ticket,attempts,tier,model]` rows, one row per task. A row whose
-  `tasks_built/<env>-<vuln_type>/` doesn't exist (or is still mid-scaffold) is scaffolded via
-  `pipeline-review/new_task.py` and reported `needs-manual-build` — vulnerability injection is
-  real engineering judgment this script deliberately does not fake. A row that's already built
-  gets its hub fleet DAG generated and (with `--publish`) published, same as `build_hub_task.py`
-  alone. One bad/incomplete row never stops the rest of the sheet. Live-tested this session on a
-  2-row sheet (one already-built row correctly produced its 15-step DAG, one new `(env,
-  vuln_type)` pair was correctly scaffolded with TODOs rather than faked).
-
-**Blocked, with stand-ins in place** (see `ops/build_hub_task.py`'s module docstring for the
-exact swap-over): the per-leg `setup` and `verify` steps should be a deterministic `run_code`
-step and a deterministic `env_outcome_verifier` step, respectively — both require registering a
-`FileArtifact`, which requires a live `pymongo.MongoClient` connection to the hub's own
-MongoDB (confirmed by reading `agent_env.artifact.artifacts.file.FileArtifact.put()`'s source,
-from the public `agentenv-framework` PyPI package — `pip install agentenv-framework`, import
-`agent_env`). That connection's real coordinates (a `.agentenv/config.toml` with a
-`[stores.document]` Mongo URI, or whatever `AGENT_ENV_CONFIG` resolves to) are not in this repo,
-not in `agentenv-framework`, and not reproduced by any REST endpoint in the hub's own OpenAPI
-spec (`GET /api/v1/docs/openapi` was fetched and read in full: no `POST /api/v1/artifacts`
-exists, only per-purpose routes like `file-artifact-universes/*` and `publish-json`, none of
-which create a generic `FileArtifact`). Until that config is available, the published fleet
-task's `setup` step is a second `prompt_agent` turn (the setup is visible to the agent, not a
-silent pre-boot) and its `verify` step is an `agent_prompt_response_verifier` rubric (LLM-judge
-against the agent's final text, not an exact per-boot-marker match) — real steps, weaker
-guarantees than the local `tests/test.sh` pipeline, never run yet end-to-end.
+The active track: running this repo's tasks as real two-stage step-DAGs (construction, then
+pass@k) on the hosted `agent-env-hub`, driven by `ops/drive_full_pipeline.py`. **See
+[HUB_PIPELINE_PLAN.md](HUB_PIPELINE_PLAN.md) for the full architecture, the concurrency
+constraint that forced the construction/pass@k split, a real finding about a false-negative
+pass@k result and its fix, and the one thing that fix is currently blocked on** (FileArtifact
+registration needs direct MongoDB access this client doesn't have). The older single-task
+`ops/build_hub_task.py`/fleet-DAG approach this section used to describe has been removed —
+superseded by the split pipeline.
 
 ## Roles
 

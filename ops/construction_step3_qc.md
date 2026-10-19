@@ -1,12 +1,12 @@
 # Construction stage 3/3: quality check, then hand off
 
 Earlier stages (separate turns, same machine) already wrote the task scaffold at
-`/work/task/` and confirmed it boots with oracle=1/noop=0 (the environment is still
+`/app/task/` and confirmed it boots with oracle=1/noop=0 (the environment is still
 running from that stage — do not tear it down or reboot it unless a fix you make
 here requires it, and if so, repeat the oracle/noop check after).
 
 **If this turn times out, you will be re-invoked as a brand-new conversation
-with no memory of this one.** Check `/work/qc-skill/` (already fetched?) and
+with no memory of this one.** Check `/app/qc-skill/` (already fetched?) and
 re-run `task_qc_check.py` immediately to see the CURRENT fail count before
 redoing any fix — an earlier attempt's fixes persist on disk even though its
 conversation doesn't, so don't re-fix something already fixed.
@@ -14,9 +14,9 @@ conversation doesn't, so don't re-fix something already fixed.
 ## Fetch the quality-check tooling
 
 ```
-mkdir -p /work/qc-skill
+mkdir -p /app/qc-skill
 curl -fsSL "{QC_SKILL_ZIP_URL}" -o /tmp/qc-skill.zip && unzip -q /tmp/qc-skill.zip -d /tmp/qc-skill-extract
-cp -r /tmp/qc-skill-extract/*/. /work/qc-skill/
+cp -r /tmp/qc-skill-extract/*/. /app/qc-skill/
 ```
 
 ## Run it, fix what it finds
@@ -26,8 +26,8 @@ an LLM judge, and if that call hangs or can't authenticate for any reason, the b
 command would otherwise block indefinitely:
 
 ```
-cd /work/qc-skill/skills/blackbox-pentest-qa/scripts
-timeout 300 python3 task_qc_check.py /work/task; echo "exit code: $?"
+cd /app/qc-skill/skills/blackbox-pentest-qa/scripts
+timeout 300 python3 task_qc_check.py /app/task; echo "exit code: $?"
 ```
 
 Exit code `124` means it hit the 5-minute timeout, not that it actually finished —
@@ -71,7 +71,7 @@ not exist by default: `mkdir -p /logs/verifier`):
   "qc_exit_code": 0,
   "qc_fail_count": 0,
   "qc_notes": "<any FAIL/WARN you judged to be a false positive, and why>",
-  "task_dir": "/work/task"
+  "task_dir": "/app/task"
 }
 ```
 

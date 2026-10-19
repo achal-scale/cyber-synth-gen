@@ -1,8 +1,8 @@
 # Construction stage 2/3: boot and validate
 
 A previous stage (a separate turn, same machine) already wrote the full task
-scaffold at `/work/task/` — read `/work/task/task.toml` and
-`/work/task/tests/test.sh` now to re-orient yourself before doing anything else.
+scaffold at `/app/task/` — read `/app/task/task.toml` and
+`/app/task/tests/test.sh` now to re-orient yourself before doing anything else.
 Do not re-do the vulnerability injection or re-write the scaffold; your job this
 stage is purely to boot it and prove oracle=1/noop=0. Do not run any quality-check
 tooling in this stage — that is a separate later stage.
@@ -13,7 +13,7 @@ to see if the stack is already built/running from an earlier attempt before
 re-running `up --build` from scratch.
 
 ```
-cd /work/task/environment
+cd /app/task/environment
 docker compose -p construction up -d --build --wait
 ```
 

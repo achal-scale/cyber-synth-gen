@@ -1,19 +1,19 @@
 # Construction stage 3a/4: fetch QC tooling, run the first check
 
-Earlier stages already wrote the task scaffold at `/work/task/` and confirmed
+Earlier stages already wrote the task scaffold at `/app/task/` and confirmed
 it boots with oracle=1/noop=0 (the environment is still running -- do not tear
 it down or reboot it). Your only job this stage: fetch the quality-check
 tooling and run it once to see where things stand. Fixing anything it finds is
 a separate later stage.
 
 **If this turn times out, you will be re-invoked as a brand-new conversation
-with no memory of this one.** Check whether `/work/qc-skill/` already exists
+with no memory of this one.** Check whether `/app/qc-skill/` already exists
 before re-fetching it.
 
 ```
-mkdir -p /work/qc-skill
+mkdir -p /app/qc-skill
 curl -fsSL "{QC_SKILL_ZIP_URL}" -o /tmp/qc-skill.zip && unzip -q /tmp/qc-skill.zip -d /tmp/qc-skill-extract
-cp -r /tmp/qc-skill-extract/*/. /work/qc-skill/
+cp -r /tmp/qc-skill-extract/*/. /app/qc-skill/
 ```
 
 Run it once, under a hard wall-clock timeout (some of its checks call out to an
@@ -21,8 +21,8 @@ LLM judge, and if that call hangs or can't authenticate for any reason, the
 bare command would otherwise block indefinitely):
 
 ```
-cd /work/qc-skill/skills/blackbox-pentest-qa/scripts
-timeout 300 python3 task_qc_check.py /work/task; echo "exit code: $?"
+cd /app/qc-skill/skills/blackbox-pentest-qa/scripts
+timeout 300 python3 task_qc_check.py /app/task; echo "exit code: $?"
 ```
 
 Exit code `124` means it hit the 5-minute timeout, not that it actually

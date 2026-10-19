@@ -1,7 +1,7 @@
 # Construction stage 1b/7: inject the vulnerability
 
 An earlier stage (a separate turn, same machine) already fetched the base
-application source under `/work/task/environment/` -- run `ls /work/task/environment`
+application source under `/app/task/environment/` -- run `ls /app/task/environment`
 now to re-orient yourself before doing anything else. Do not re-fetch anything.
 This stage's only job is making the actual vulnerability code change; scaffold
 files (task.toml, instructions, docker-compose, rubrics, tests, solution) are
@@ -10,7 +10,7 @@ docker-compose in this stage.
 
 **If this turn times out, you will be re-invoked as a brand-new conversation
 with no memory of this one.** Check `git diff`/recent file timestamps under
-`/work/task/environment/` for a change an earlier attempt may have already made
+`/app/task/environment/` for a change an earlier attempt may have already made
 before redoing this from scratch.
 
 **Vulnerability to inject**: {VULN_SPEC}

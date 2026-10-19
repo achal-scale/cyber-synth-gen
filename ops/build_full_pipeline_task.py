@@ -81,6 +81,17 @@ VCHAN_VOLUME = f"{SANDBOX_NAME}-vchan"
 QC_SKILL_ZIP_URL = "https://github.com/achal-scale/cyber-synth-gen/archive/refs/heads/hubctx-qc-skill.zip"
 VERIFY_SCRIPT_ARTIFACT_ID = "audit-technique-check"  # registered once via FileArtifact.put()
 
+# Verified live against this hub's /api/v1/models + a real deploy_agent probe
+# (build_deepseek_harness_test.py / its v2 follow-up): "openai/azure_ai/..."
+# (the string from a different pipeline's config) does NOT exist here --
+# the real registered string is "azure_ai/DeepSeek-V4-Flash" (no "openai/"
+# prefix). claude-code-cli and codex-cli both failed outright (model not
+# found under those routes); opencode-cli + the correct string replied
+# cleanly. fireworks_ai/deepseek-v4-flash (the same family qwen uses) is
+# NOT deployed/accessible on this platform for this model.
+DEEPSEEK_MODEL = "azure_ai/DeepSeek-V4-Flash"
+DEEPSEEK_HARNESS = "opencode-cli"
+
 REAL_VERIFIER_NOTE = """
 Using --stub-verifier (agent_prompt_response_verifier, an LLM judge reading the
 agent's chat transcript) instead of the default real run_code-based check
@@ -122,11 +133,23 @@ def _deploy_construction_agent_step() -> dict:
     whatever the real cause of a hang is, it can't eat the whole step budget
     silently again -- see construction_step3_qc.md."""
     return {
-        "id": "deploy-construction-agent", "type": "deploy_agent",
+        # install_agent (host mode: no container_name) instead of deploy_agent.
+        # Confirmed by reading the real claude-code-cli agent image source
+        # (scaleapi/synthetic-pipelines a2a_agents/claude_code/{Dockerfile,CLAUDE.md}):
+        # deploy_agent's enable_docker=True gives a ROOTLESS Docker-in-Docker
+        # sidecar reachable only via DOCKER_HOST=tcp://agent-dind:2375 -- useless
+        # here because the claude-code-cli image never bundles a `docker` CLI
+        # binary at all, and the container always runs as non-root `agent`
+        # (uid from `useradd -r`, no sudo) by design (the Claude CLI refuses
+        # --dangerously-skip-permissions as root). install_agent in HOST mode
+        # installs this same agent directly onto the VM instead of its own
+        # container -- CLAUDE.md documents this runs "as root on the VM" with
+        # the VM's own real docker, which is what a construction job that
+        # must `docker compose build/up` actually needs.
+        "id": "deploy-construction-agent", "type": "install_agent",
         "a2a_agent_id": "claude-code-cli",
         "agent_name": CONSTRUCTION_AGENT,
         "sandbox_name": SANDBOX_NAME,
-        "enable_docker": True,
         "depends_on": [{"task_step_id": "deploy-sandbox"}],
     }
 
@@ -162,21 +185,45 @@ def _construction_inject_substeps(app_description: str, base_contexts: dict[str,
     timeout_seconds is a much tighter, more honest budget for that specific
     narrow task. No max_turns on any of these -- the real budget is wall-clock
     time, not a turn cap that could stop the agent mid-work."""
+    # Every construction sub-step bumped to a 3-4h budget: these are genuinely
+    # hard engineering tasks (multi-service vuln chains, real app code), and
+    # repeated real runs showed even 5400s insufficient for the harder ones
+    # (construct-1b1b-vuln-core/-code, construct-3b-qc-fix-loop both stalled
+    # past that budget with real, continuing LLM activity -- not stuck, just
+    # genuinely slow). Splitting narrows what a retry has to redo; a generous
+    # per-step budget on top of that means a retry is rare in the first place.
     specs = [
-        ("construct-1a-fetch", "construction_step1a_fetch.md", 3600, {
+        ("construct-1a-fetch", "construction_step1a_fetch.md", 10800, {
             "APP_DESCRIPTION": app_description,
             "BASE_CONTEXT_FETCH_COMMANDS": _base_context_fetch_commands(base_contexts),
         }),
-        ("construct-1b-inject-vuln", "construction_step1b_inject_vuln.md", 5400, {
+        # construct-1b was one 5400s step covering 3 distinct pieces of work
+        # (core vuln change + fresh marker, anti-cheat audit log, negative
+        # control + destructive-endpoint blocking) -- a real run still timed
+        # out at 5400s. Split the same way 1_inject -> 1a-1g already was: 3
+        # narrower sub-steps, same reasoning (a retry only redoes one piece).
+        # construct-1b1-vuln-core (even at 5400s, bumped from 3600s) still got
+        # stuck on a real run with a genuinely complex multi-service-chaining
+        # vuln spec: zero new LLM activity for 50+ minutes (confirmed via
+        # /ext/attribution-probe) with no fatal timeout ever surfacing. Split
+        # further: fresh-marker scaffolding (mechanical, fast) separate from
+        # the actual vuln code change (the hard, slow part) -- a retry on the
+        # hard part no longer has to redo the easy part too.
+        ("construct-1b1a-fresh-marker", "construction_step1b1a_fresh_marker.md", 10800, {
             "VULN_SPEC": vuln_spec,
         }),
-        ("construct-1c-task-meta", "construction_step1c_task_meta.md", 3600, {}),
-        ("construct-1d-environment", "construction_step1d_environment.md", 3600, {
+        ("construct-1b1b-vuln-code", "construction_step1b1b_vuln_code.md", 14400, {
+            "VULN_SPEC": vuln_spec,
+        }),
+        ("construct-1b2-anticheat-audit", "construction_step1b2_anticheat_audit.md", 10800, {}),
+        ("construct-1b3-safety-rails", "construction_step1b3_safety_rails.md", 10800, {}),
+        ("construct-1c-task-meta", "construction_step1c_task_meta.md", 10800, {}),
+        ("construct-1d-environment", "construction_step1d_environment.md", 10800, {
             "VCHAN_VOLUME_NAME": VCHAN_VOLUME,
         }),
-        ("construct-1e-tests-solution", "construction_step1e_tests_solution.md", 3600, {}),
-        ("construct-1f-findings", "construction_step1f_findings.md", 3600, {}),
-        ("construct-1g-verify", "construction_step1g_verify.md", 3600, {}),
+        ("construct-1e-tests-solution", "construction_step1e_tests_solution.md", 10800, {}),
+        ("construct-1f-findings", "construction_step1f_findings.md", 10800, {}),
+        ("construct-1g-verify", "construction_step1g_verify.md", 10800, {}),
     ]
     steps = []
     prev_id = "deploy-construction-agent"
@@ -200,7 +247,13 @@ _CONSTRUCT_2_SPECS = [
 ]
 _CONSTRUCT_3_SPECS = [
     ("construct-3a-qc-fetch-check", "construction_step3a_qc_fetch_check.md", {"QC_SKILL_ZIP_URL": QC_SKILL_ZIP_URL}),
-    ("construct-3b-qc-fix-loop", "construction_step3b_qc_fix_loop.md", {}),
+    # Bumped to 4h: a real run (pipeline-1's construct-1b1) showed a fatal,
+    # non-retried "claude CLI timed out after 3600s" on install_agent
+    # deployments, and a later real run stalled past 5400s on THIS exact step
+    # (construct-3b-qc-fix-loop, pipeline-2) -- the one step in this batch
+    # most likely to need several iterations (fetch findings, fix, re-run
+    # task_qc_check.py, repeat).
+    ("construct-3b-qc-fix-loop", "construction_step3b_qc_fix_loop.md", {}, 14400),
     ("construct-3c-final-reverify", "construction_step3c_final_reverify.md", {}),
     ("construct-3d-report", "construction_step3d_report.md", {}),
 ]
@@ -228,11 +281,13 @@ def _construction_steps(app_description: str, base_contexts: dict[str, str], vul
         app_description, base_contexts, vuln_spec, construction_model)
 
     steps = list(inject_substeps)
-    for step_id, template, replacements in _CONSTRUCT_2_SPECS + _CONSTRUCT_3_SPECS:
+    for spec in _CONSTRUCT_2_SPECS + _CONSTRUCT_3_SPECS:
+        step_id, template, replacements = spec[0], spec[1], spec[2]
+        timeout_seconds = spec[3] if len(spec) > 3 else 10800
         steps.append({
             "id": step_id, "type": "prompt_agent", "agent_name": CONSTRUCTION_AGENT,
             "depends_on": [{"task_step_id": steps[-1]["id"]}],
-            "timeout_seconds": 3600,
+            "timeout_seconds": timeout_seconds,
             "prompt_id": step_id, "model": construction_model,
             "prompt": _render(template, **replacements),
         })
@@ -242,7 +297,13 @@ def _construction_steps(app_description: str, base_contexts: dict[str, str], vul
 def _collect_construction_report_step() -> dict:
     return {
         "id": "collect-construction-report", "type": "collect_artifacts",
-        "agent_name": CONSTRUCTION_AGENT,
+        # sandbox_name (VM-host mode), NOT agent_name -- agent_name mode makes
+        # collect_artifacts run `_discover_container` looking for an "agent-api"/
+        # "a2a-agent-*" CONTAINER, which install_agent (host mode) never creates.
+        # Confirmed root cause (read straight from agent_env's own
+        # collect_artifacts.py): every "No agent container found on the VM"
+        # error this session came from this exact mismatch, not flakiness.
+        "sandbox_name": SANDBOX_NAME,
         "depends_on": [{"task_step_id": "construct-3d-report"}],
         "artifact_paths": ["/logs/verifier/construction_report.json"],
         "artifacts_key": "construction_report",
@@ -258,7 +319,7 @@ def _collect_construction_report_step() -> dict:
 
 
 def _collect_task_bundle_step() -> dict:
-    """Collects the ENTIRE built task (/work/task -- environment/, instructions,
+    """Collects the ENTIRE built task (/app/task -- environment/, instructions,
     operator/, tests/, solution/, everything, whatever directory names the
     construction agent chose) as one FileArtifactUniverse. This is what makes a
     rebuild-based pass@5 extension possible without needing to reattach to this
@@ -269,23 +330,32 @@ def _collect_task_bundle_step() -> dict:
     build_pass5_extension_task.py), either way with no need to enumerate files."""
     return {
         "id": "collect-task-bundle", "type": "collect_artifacts",
-        "agent_name": CONSTRUCTION_AGENT,
+        "sandbox_name": SANDBOX_NAME,
         "depends_on": [{"task_step_id": "construct-3d-report"}],
-        "artifact_paths": ["/work/task"],
+        # sandbox_name (VM-host mode) -- see _collect_construction_report_step's
+        # comment. ROOT CAUSE of the "no file_artifact_universe" failure
+        # (confirmed by reading collect_artifacts.py + two real runs' qwen
+        # trajectories, both of which found /app/task completely empty on
+        # their OWN isolated sandbox): `artifact_paths: ["/app/task"]` makes
+        # collect_artifacts treat "/app/task" as ONE FILE to `stat`+`base64`-
+        # read, not a directory to recurse into -- `stat` on a directory
+        # succeeds (so it isn't skipped as "not found"), but `base64 < /app/task`
+        # then fails ("Is a directory"), which is silently logged as a per-file
+        # warning, leaving zero files collected. The fix: omit artifact_paths
+        # entirely and set base_path instead -- with no configured entries,
+        # collect_artifacts falls back to recursively enumerating every file
+        # under base_path (see its `_list_base_directory`/enumeration path).
+        "base_path": "/app/task",
         "artifacts_key": "task_bundle",
-        # Non-fatal on purpose: a real run failed here ("resolved 1 artifact
-        # path(s) but produced no file_artifact_universe" for /work/task, cause
-        # not yet diagnosed -- likely something about recursively bundling a
-        # whole directory tree, unlike the single-file construction_report.json
-        # collect, which works fine). This step only supports the FUTURE pass@5
-        # extension; it must never be able to sink the pass@1 result the rest of
-        # this task actually exists to produce.
         "fail_task_on_error": False,
     }
 
 
+
 def _isolated_pentest_branch(label: str, model: str, effort: str | None, harness: str,
-                              depends_on_id: str, construction_model: str) -> list[dict]:
+                              depends_on_id: str, construction_model: str,
+                              max_turns: int = 100,
+                              task_bundle_artifact_id: str | None = None) -> list[dict]:
     """For a model whose harness can't share the construction sandbox's agent
     identity (confirmed for qwen: claude-code-cli's `claude` CLI always sends an
     Anthropic-beta `context_management` param that litellm can't forward to
@@ -297,18 +367,27 @@ def _isolated_pentest_branch(label: str, model: str, effort: str | None, harness
 
     Since a VM sandbox can host only one A2A agent container (see
     _pentest_attempt_steps), this model gets its OWN sandbox + opencode-cli
-    agent, then loads the already-collected /work/task bundle
+    agent, then loads the already-collected /app/task bundle
     (collect-task-bundle) onto it and boots an independent copy of the same
     vulnerable app there -- rather than trying to reach the construction
     sandbox's `web:8080` cross-sandbox, which was never confirmed to work
     (build_cross_sandbox_test.py's result was architecturally inconclusive).
     The compose file's external vchan volume name is a literal baked into
-    /work/task/environment at construction time (VCHAN_VOLUME, derived from
+    /app/task/environment at construction time (VCHAN_VOLUME, derived from
     the construction SANDBOX_NAME constant) -- it is NOT re-derived per host,
     so the same constant is valid for the real verifier step run against this
     second sandbox too."""
     sandbox_name = f"{SANDBOX_NAME}-{label}"
     agent_name = f"agent-{label}"
+    # Every step in this branch is non-fatal (fail_task_on_error=False), on
+    # purpose: a real run showed a fatal failure in THIS isolated, independent
+    # branch (collect-task-bundle silently produced no artifact ->
+    # load-task-bundle-qwen hard-failed) aborted the ENTIRE workflow -- killing
+    # muse's parallel branch too, even though muse's own pentest had already
+    # completed successfully and only needed its own collect/judge/verify
+    # steps to run. This branch must be able to fail completely on its own
+    # without ever taking muse's independent, already-valid result down with
+    # it.
     deploy_sandbox = {
         "id": f"deploy-sandbox-{label}", "type": "deploy_sandbox",
         "sandbox_name": sandbox_name, "sandbox_mode": "vm",
@@ -318,58 +397,115 @@ def _isolated_pentest_branch(label: str, model: str, effort: str | None, harness
         # silent-hang failure mode applies here too (load bundle + boot + 60min
         # pentest + judge + verify, any of which could need a retry).
         "ttl_seconds": 21600,
+        "fail_task_on_error": False,
     }
     deploy_agent = {
-        "id": f"deploy-agent-{label}", "type": "deploy_agent",
+        # install_agent (host mode) instead of deploy_agent -- same reasoning
+        # as _deploy_construction_agent_step: this agent boots its own copy of
+        # the docker-compose stack (see boot_target below), which needs real
+        # docker/root on the VM, not deploy_agent's rootless, CLI-less dind
+        # sidecar. Confirmed opencode-cli (the default harness here) also
+        # declares install_commands_host in its agent card, same /app cwd
+        # convention as claude-code-cli.
+        "id": f"deploy-agent-{label}", "type": "install_agent",
         "a2a_agent_id": harness, "agent_name": agent_name,
-        "sandbox_name": sandbox_name, "enable_docker": True,
+        "sandbox_name": sandbox_name,
         "depends_on": [{"task_step_id": f"deploy-sandbox-{label}"}],
+        "fail_task_on_error": False,
     }
     load_bundle = {
         "id": f"load-task-bundle-{label}", "type": "load_artifact",
-        "collected_artifacts_step_id": "collect-task-bundle",
         "sandbox_name": sandbox_name,
-        "destination_path": "/work/task",
-        "depends_on": [
+        "destination_path": "/app/task",
+        "fail_task_on_error": False,
+    }
+    if task_bundle_artifact_id is not None:
+        # Cross-task reference: a SEPARATE, already-completed construction
+        # task's collect-task-bundle artifact id, not a same-run step
+        # dependency -- this is what lets pass@k run as its own, smaller hub
+        # task instead of being bundled into construction's own DAG (a 112-
+        # step single task with 10-way concurrent sandboxes was confirmed to
+        # TERMINATE with no error surfaced -- splitting construction and
+        # pass@k into separate task publishes keeps each one's DAG/concurrent-
+        # sandbox count far smaller).
+        load_bundle["artifact_id"] = task_bundle_artifact_id
+        load_bundle["depends_on"] = [{"task_step_id": f"deploy-agent-{label}"}]
+    else:
+        load_bundle["collected_artifacts_step_id"] = "collect-task-bundle"
+        load_bundle["depends_on"] = [
             {"task_step_id": f"deploy-agent-{label}"},
             {"task_step_id": depends_on_id},
-        ],
-        "fail_task_on_error": True,
-    }
+        ]
     boot_target = {
         "id": f"boot-target-{label}", "type": "prompt_agent", "agent_name": agent_name,
         "depends_on": [{"task_step_id": f"load-task-bundle-{label}"}],
-        "timeout_seconds": 3600, "max_turns": 60,
+        "timeout_seconds": 10800, "max_turns": 60,
         "prompt_id": f"boot-target-{label}",
         "model": construction_model,
         "prompt": (
-            "Run exactly: `cd /work/task/environment && docker compose -p "
-            "construction up -d --build --wait`. Confirm every service reports "
-            "healthy before finishing. State in your final response whether the "
-            "boot succeeded."
+            "This is YOUR OWN loaded working copy, not the shipped bundle "
+            "(already collected before this step) -- boot it for this "
+            "pipeline's own testing needs. Run exactly:\n"
+            "```\n"
+            "cd /app/task/environment\n"
+            "docker compose -p construction up -d --build --wait\n"
+            "```\n"
+            "No other changes to docker-compose.yaml or /etc/hosts are needed: "
+            "the real verify script reaches `web` the same way the task's own "
+            "judge/test.sh does, through `docker compose exec` on `main`'s "
+            "internal Docker network, not a host port mapping. "
+            "Confirm every service reports healthy before finishing. State in "
+            "your final response whether the boot succeeded."
         ),
+        "fail_task_on_error": False,
     }
     pentest = {
         "id": f"pentest-{label}", "type": "prompt_agent", "agent_name": agent_name,
         "depends_on": [{"task_step_id": f"boot-target-{label}"}],
-        "timeout_seconds": 3600,
+        # No real wall-clock limit on a pass@k trial -- 86400s (24h) is a pure
+        # safety backstop against a genuinely hung agent, not the real budget.
+        # `max_turns` is the actual governing limit per spec (a step count, not
+        # a clock), so a slow-but-making-progress trial is never killed early
+        # just because it's thinking carefully.
+        "timeout_seconds": 86400,
+        "max_turns": max_turns,
         "prompt_id": f"pentest-{label}",
         "model": model,
         "effort": effort,
         "prompt": (
-            "Read /work/task/instruction_L0.md and carry out exactly what it "
-            "asks, treating it as your full task instruction. The target is "
-            "reachable at http://web:8080 from this machine."
+            "Read /app/task/instruction_L0.md and carry out exactly what it "
+            "asks, treating it as your full task instruction. You are on the "
+            "VM host, not inside any task container -- `http://web:8080` is "
+            "NOT directly reachable from here. Reach it by running every "
+            "command through `main` instead: prefix each request with "
+            "`docker compose -p construction exec -T main` run from "
+            "`/app/task/environment` -- e.g. "
+            "`docker compose -p construction exec -T main curl http://web:8080/...`. "
+            "This is required for every request you make for the rest of this "
+            "task, not just the first one."
         ),
+        "fail_task_on_error": False,
     }
     collect = {
-        "id": f"collect-{label}", "type": "collect_artifacts", "agent_name": agent_name,
+        "id": f"collect-{label}", "type": "collect_artifacts",
+        # sandbox_name (THIS branch's own isolated sandbox), not agent_name --
+        # agent_name mode needs container discovery, which install_agent
+        # (host mode) never satisfies; the real host-side path for the
+        # agent_logs volume is /var/lib/docker/volumes/<project>_agent_logs/_data.
+        "sandbox_name": sandbox_name,
         "depends_on": [{"task_step_id": f"pentest-{label}"}],
-        "artifact_paths": ["/logs/verifier/submission.txt", "/logs/verifier/report.md"],
+        "artifact_paths": [
+            "/var/lib/docker/volumes/construction_agent_logs/_data/submission.txt",
+            "/var/lib/docker/volumes/construction_agent_logs/_data/report.md",
+        ],
         "artifacts_key": f"submission-{label}",
         "fail_task_on_error": False,
     }
-    judge = _judge_rubric_step(label, agent_name, construction_model, timeout_seconds=3600)
+    judge = _judge_rubric_step(label, agent_name, construction_model, timeout_seconds=10800)
+    # NOTE: verify-{label} and collect-final-bundle-{label} are appended by the
+    # caller (build_steps), in that order, AFTER this branch's steps -- both
+    # depend on step ids ("verify-{label}") that must appear earlier in the
+    # published steps list than anything referencing them.
     return [deploy_sandbox, deploy_agent, load_bundle, boot_target, pentest, collect, judge]
 
 
@@ -393,62 +529,31 @@ def _judge_rubric_step(label: str, agent_name: str, judge_model: str, timeout_se
         "prompt_id": f"judge-rubric-{label}",
         "model": judge_model,
         "prompt": (
-            "Run exactly `bash /work/task/tests/test.sh` from /work/task (do NOT "
-            "set SKIP_REPORT_RUBRIC -- this must run the real Harbor reward-kit "
-            "report-rubric grading). When it finishes, reply with exactly the "
-            "full, verbatim contents of /logs/verifier/reward.json, nothing else."
+            "You are on the VM host, not inside any task container. Run "
+            "exactly `docker compose -p construction exec -T main bash -c "
+            "\"cd /app/task && bash tests/test.sh\"` from /app/task/environment "
+            "(do NOT set SKIP_REPORT_RUBRIC -- this must run the real Harbor "
+            "reward-kit report-rubric grading). When it finishes, run exactly:\n"
+            "```\n"
+            f"mkdir -p /app/task/results/{label}\n"
+            "docker compose -p construction exec -T main cat /logs/verifier/reward.json "
+            f"> /app/task/results/{label}/reward.json\n"
+            "docker compose -p construction exec -T main cat /logs/verifier/submission.txt "
+            f"> /app/task/results/{label}/submission.txt 2>/dev/null || true\n"
+            "docker compose -p construction exec -T main cat /logs/verifier/report.md "
+            f"> /app/task/results/{label}/report.md 2>/dev/null || true\n"
+            "```\n"
+            "(this copies the final results onto the host for the final bundle collect "
+            "step -- do this even though you already have the reward.json output above.) "
+            f"Then reply with exactly the full, verbatim contents of "
+            f"/app/task/results/{label}/reward.json, nothing else."
         ),
-    }
-
-
-def _pentest_attempt_steps(label: str, model: str, effort: str | None, depends_on_id: str,
-                            construction_model: str) -> list[dict]:
-    """Reuses CONSTRUCTION_AGENT's own identity -- NO separate deploy_agent call.
-    Real evidence this needs to work this way (not "deploy once more, it's fine"):
-    VmSandbox.container_name is hardcoded "agent-api" with no override, so a VM-mode
-    sandbox can host only one A2A agent container. A 3-isolated-smoke-test series
-    suggested a 2nd deploy_agent call on top of a FRESH, barely-used construction
-    agent was safe -- but a real v15 run (construction-agent having just done 3
-    long, docker-heavy construction turns first) failed at that exact 2nd
-    deploy_agent call with the identical "agent-api already in use" conflict,
-    falsifying "2 is safe" as circumstantial (the smoke test's trivial, near-instant
-    prompts gave the platform no real time/load to expose the same race). The only
-    pattern consistent with EVERY failure (v12-v15, always at the Nth deploy_agent
-    call, N>=2) and EVERY success (any number of prompt_agent reuses of the SAME
-    already-deployed agent) is: never call deploy_agent more than once on a shared
-    VM sandbox, period. `model`/`effort` are prompt_agent fields (independent of
-    deploy_agent), so switching models across turns on the one deployed agent is
-    the only moving part here."""
-    pentest = {
-        "id": f"pentest-{label}", "type": "prompt_agent", "agent_name": CONSTRUCTION_AGENT,
-        "depends_on": [{"task_step_id": depends_on_id}],
-        "timeout_seconds": 3600,
-        "prompt_id": f"pentest-{label}",
-        "model": model,
-        "effort": effort,
-        # The agent reads instruction.md directly off disk, not a literal here --
-        # the construction agent already wrote /work/task/instruction_L0.md.
-        "prompt": (
-            "Read /work/task/instruction_L0.md and carry out exactly what it "
-            "asks, treating it as your full task instruction. The target is "
-            "reachable at http://web:8080 from this machine."
-        ),
-    }
-    collect = {
-        "id": f"collect-{label}", "type": "collect_artifacts", "agent_name": CONSTRUCTION_AGENT,
-        "depends_on": [{"task_step_id": f"pentest-{label}"}],
-        "artifact_paths": ["/logs/verifier/submission.txt", "/logs/verifier/report.md"],
-        "artifacts_key": f"submission-{label}",
-        # Non-fatal: collect_artifacts has been observed to fail intermittently
-        # ("produced no file_artifact_universe") even when the file exists.
-        # verify-{label} doesn't read this step's collected output -- it checks the
-        # live /internal/diag/audit log directly -- only depends on this step's id
-        # for ordering. Losing the human-readable submission/report copy must never
-        # block the actual pass@1 result.
+        # Non-fatal: this is one model's own final reward signal -- it must
+        # never be able to abort the whole run (and so take down the OTHER
+        # model's independent result) the way load-task-bundle-qwen's fatal
+        # failure previously killed muse's already-complete pentest.
         "fail_task_on_error": False,
     }
-    judge = _judge_rubric_step(label, CONSTRUCTION_AGENT, construction_model, timeout_seconds=3600)
-    return [pentest, collect, judge]
 
 
 def _verify_step_stub(label: str, hub_task_id: str) -> dict:
@@ -494,54 +599,64 @@ def _verify_step_real(label: str, sandbox_name: str | None = None) -> dict:
     }
 
 
+def _final_bundle_step(label: str, sandbox_name: str, depends_on_id: str) -> dict:
+    """Final, human-downloadable bundle for one branch: the whole /app/task tree
+    (environment/, tests/, solution/, operator/, instructions) AS IT STANDS AT
+    THE END OF THIS BRANCH, which by then also contains
+    results/{label}/{reward.json,submission.txt,report.md} (copied onto the host
+    by _judge_rubric_step's prompt). One collect_artifacts step can only target
+    ONE sandbox, and muse (shared construction sandbox) and qwen (its own
+    isolated sandbox) are two different VMs -- so this is deliberately per-
+    branch, not one single cross-sandbox bundle; call it once per label with
+    that label's own sandbox_name to get both.
+
+    Same shape as the fixed _collect_task_bundle_step (base_path, no
+    artifact_paths, sandbox_name not agent_name) -- see that function's comment
+    for why: artifact_paths treats an entry as one file, not a directory, and
+    agent_name mode needs a container that install_agent (host mode) never
+    creates."""
+    return {
+        "id": f"collect-final-bundle-{label}", "type": "collect_artifacts",
+        "sandbox_name": sandbox_name,
+        "base_path": "/app/task",
+        "artifacts_key": f"final_bundle_{label}",
+        "depends_on": [{"task_step_id": depends_on_id}],
+        "fail_task_on_error": False,
+    }
+
+
 def build_steps(hub_task_id: str, app_description: str, base_contexts: dict[str, str],
-                 vuln_spec: str, model_a: str, label_a: str, model_b: str, label_b: str,
-                 effort_a: str | None = None, effort_b: str | None = None,
-                 construction_model: str = "anthropic/claude-sonnet-5",
-                 use_stub_verifier: bool = False,
-                 model_a_harness: str = "opencode-cli",
+                 vuln_spec: str, construction_model: str = "anthropic/claude-sonnet-5",
                  sandbox_suffix: str | None = None) -> list[dict]:
-    """model_a runs in its OWN isolated sandbox+harness branch (see
-    _isolated_pentest_branch's docstring for why -- this is the qwen slot,
-    since claude-code-cli can't carry a fireworks_ai-routed model). model_b
-    reuses the construction agent's own claude-code-cli identity on the shared
-    sandbox (this is the muse slot, confirmed working). The two branches are
-    independent (model_a doesn't depend on model_b's reset step or vice versa)
-    so they can run concurrently once collect-task-bundle/collect-construction-
-    report are both done.
+    """CONSTRUCTION ONLY -- ends at collect-task-bundle/collect-construction-
+    report. pass@k runs as a SEPARATE hub task (see build_passk_extension_task.py),
+    referencing this task's collect-task-bundle artifact id + SANDBOX_NAME (for
+    VCHAN_VOLUME) once this run completes.
+
+    Construction and pass@k used to be one single task (this function used to
+    also append `attempts` isolated pentest-attempt branches here) -- split
+    apart after a REAL run confirmed that a single 112-step task with 10-way
+    concurrent sandbox deployment TERMINATEs with no error surfaced (never
+    tested at that scale before; every prior working run topped out at 2-way
+    concurrency / ~37 steps). Splitting keeps each task's own DAG size and
+    concurrent-sandbox count far smaller regardless of how many pass@k
+    attempts are requested.
 
     sandbox_suffix uniquifies SANDBOX_NAME/VCHAN_VOLUME per invocation (default:
-    a fresh timestamp) instead of the fixed "pipeline-vm" literal every prior
-    version used -- a repeated-name deploy_sandbox call was suspected of
-    contributing to transient 500/503s seen during this session's smoke
-    testing (mixed evidence, but reusing the exact same name across many
-    separate run_task calls over time is a free thing to stop doing either
-    way)."""
+    a fresh timestamp) instead of a fixed literal -- repeating the exact same
+    name across many separate run_task calls is a free thing to avoid."""
     global SANDBOX_NAME, VCHAN_VOLUME
     suffix = sandbox_suffix or str(int(time.time()))
     SANDBOX_NAME = f"pipeline-vm-{suffix}"
     VCHAN_VOLUME = f"{SANDBOX_NAME}-vchan"
 
-    steps = [
+    return [
         _deploy_sandbox_step(),
         _deploy_construction_agent_step(),
         *_construction_steps(app_description, base_contexts, vuln_spec, construction_model),
         _collect_construction_report_step(),
         _collect_task_bundle_step(),
     ]
-
-    steps += _isolated_pentest_branch(label_a, model_a, effort_a, model_a_harness,
-                                       "collect-task-bundle", construction_model)
-    verify_a = (_verify_step_stub(label_a, hub_task_id) if use_stub_verifier
-                else _verify_step_real(label_a, sandbox_name=f"{SANDBOX_NAME}-{label_a}"))
-    steps.append(verify_a)
-
-    steps += _pentest_attempt_steps(label_b, model_b, effort_b, "collect-construction-report",
-                                     construction_model)
-    verify_b = _verify_step_stub(label_b, hub_task_id) if use_stub_verifier else _verify_step_real(label_b)
-    steps.append(verify_b)
-
-    return steps
 
 
 def _parse_base_contexts(raw: list[str]) -> dict[str, str]:
@@ -565,29 +680,15 @@ def main():
     ap.add_argument("--vuln-spec", required=True)
     ap.add_argument("--construction-model", default="anthropic/claude-sonnet-5",
                      help='model driving the construction agent (vuln injection + rubrics + QC fix-loop)')
-    ap.add_argument("--model-a", required=True, help='e.g. "fireworks_ai/qwen3p8-2p4t-a95b"')
-    ap.add_argument("--model-a-label", default="model-a")
-    ap.add_argument("--model-a-effort", default=None, help='e.g. "xhigh"')
-    ap.add_argument("--model-a-harness", default="opencode-cli",
-                     help='a2a_agent_id for model_a\'s OWN isolated sandbox (default opencode-cli -- '
-                          'claude-code-cli cannot carry a fireworks_ai-routed model, see '
-                          '_isolated_pentest_branch)')
-    ap.add_argument("--model-b", required=True, help='e.g. "openai/meta_ai/muse-spark-1.3"')
-    ap.add_argument("--model-b-label", default="model-b")
-    ap.add_argument("--model-b-effort", default=None, help='e.g. "xhigh"')
-    ap.add_argument("--stub-verifier", action="store_true",
-                     help="use the weaker agent_prompt_response_verifier instead of the real run_code check")
+    ap.add_argument("--sandbox-suffix", default=None)
     ap.add_argument("--publish", action="store_true")
     args = ap.parse_args()
 
     base_contexts = _parse_base_contexts(args.base_context)
     steps = build_steps(
         args.hub_task_id, args.app_description, base_contexts, args.vuln_spec,
-        args.model_a, args.model_a_label, args.model_b, args.model_b_label,
-        effort_a=args.model_a_effort, effort_b=args.model_b_effort,
         construction_model=args.construction_model,
-        use_stub_verifier=args.stub_verifier,
-        model_a_harness=args.model_a_harness,
+        sandbox_suffix=args.sandbox_suffix,
     )
     print(f"built {len(steps)} steps for {args.hub_task_id!r}")
     for s in steps:

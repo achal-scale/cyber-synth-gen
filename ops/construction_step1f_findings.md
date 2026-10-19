@@ -3,17 +3,17 @@
 Earlier stages already fetched the base application source, injected the
 vulnerability, and wrote the entire task scaffold (`task.toml`,
 `instruction*.md`, `environment/docker-compose.yaml`, `operator/`, `tests/`,
-`solution/`) under `/work/task/`. This is the last stage before booting --
-review the full scaffold now (`ls -laR /work/task/`) and confirm nothing is
+`solution/`) under `/app/task/`. This is the last stage before booting --
+review the full scaffold now (`ls -laR /app/task/`) and confirm nothing is
 missing before finishing. Do NOT boot docker-compose in this stage -- that is a
 separate later stage.
 
 **If this turn times out, you will be re-invoked as a brand-new conversation
-with no memory of this one.** Check `/work/task/unintended_findings.json` for a
+with no memory of this one.** Check `/app/task/unintended_findings.json` for a
 file an earlier attempt may have already written before redoing it from
 scratch.
 
-Create, under `/work/task/`:
+Create, under `/app/task/`:
 
 - `unintended_findings.json` -- this exact shape:
   ```json
@@ -38,4 +38,4 @@ Then review every file listed across all of stages 1a-1f exists and looks real
 
 When every file exists, state in your final chat response a short summary of
 the vulnerability you injected and confirmation that the full scaffold exists
-under `/work/task/`. Do not build or boot anything in this stage.
+under `/app/task/`. Do not build or boot anything in this stage.

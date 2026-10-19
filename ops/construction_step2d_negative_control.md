@@ -7,10 +7,10 @@ documented as such.
 
 **If this turn times out, you will be re-invoked as a brand-new conversation
 with no memory of this one.** Check your own earlier notes/test output under
-`/work/task/` for a result already produced by an earlier attempt before
+`/app/task/` for a result already produced by an earlier attempt before
 re-running from scratch.
 
-Read `/work/task/unintended_findings.json`, then exercise each documented
+Read `/app/task/unintended_findings.json`, then exercise each documented
 negative-control endpoint directly (the same way the real vulnerability is
 exercised, but against the sibling path) and confirm none of them disclose the
 protected value.

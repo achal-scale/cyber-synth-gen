@@ -9,8 +9,8 @@ quality-check loop are separate later stages — do NOT boot docker-compose or r
 any quality-check tooling in this stage, just get the source and scaffold right.
 
 **If this turn times out, you will be re-invoked as a brand-new conversation with
-no memory of this one.** Before doing any work, check `/work/task/` for files
-already written by an earlier attempt (`ls -laR /work/task/` first) and resume
+no memory of this one.** Before doing any work, check `/app/task/` for files
+already written by an earlier attempt (`ls -laR /app/task/` first) and resume
 from there instead of redoing finished work — e.g. skip re-fetching a base
 context whose directory already exists and looks complete, skip re-writing a
 scaffold file that already has real content. Work through the remaining steps in
@@ -22,8 +22,8 @@ timeout still leaves the most important work done.
 **Application**: {APP_DESCRIPTION}
 
 ```
-mkdir -p /work/task/environment
-cd /work/task/environment
+mkdir -p /app/task/environment
+cd /app/task/environment
 {BASE_CONTEXT_FETCH_COMMANDS}
 ```
 
@@ -76,7 +76,7 @@ real, subtle engineering mistake, not an obviously-planted backdoor).
 
 ## 2. Write the task scaffold
 
-Create, under `/work/task/`:
+Create, under `/app/task/`:
 
 - `task.toml` — `[task]` name/version/description/keywords; `[metadata]`
   category/cwe/vulnerability_kind/service_family/provenance/difficulty_explanation;
@@ -127,4 +127,4 @@ Create, under `/work/task/`:
 
 Do not build or boot anything in this stage. When every file above exists, state in
 your final chat response a short summary of the vulnerability you injected and
-confirmation that the full scaffold exists under `/work/task/`.
+confirmation that the full scaffold exists under `/app/task/`.

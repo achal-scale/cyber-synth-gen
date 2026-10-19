@@ -13,18 +13,20 @@ already produced by an earlier attempt before re-running from scratch.
 From a fresh boot (**always use the exact `-p construction` project flag**,
 never a bare `docker compose down`/`up` without it):
 
+You are on the VM host, NOT inside any task container -- run everything
+through `main` (has the real network access + the task-dir mount), not bare:
+
 ```
-cd /work/task/environment
+cd /app/task/environment
 docker compose -p construction down -v --remove-orphans
 docker compose -p construction up -d --build --wait
-cd /work/task
-bash solution/solve.sh
-SKIP_REPORT_RUBRIC=1 bash tests/test.sh
-cat /logs/verifier/reward.txt   # must read 1
+docker compose -p construction exec -T main bash -c "cd /app/task && bash solution/solve.sh"
+docker compose -p construction exec -T main bash -c "cd /app/task && SKIP_REPORT_RUBRIC=1 bash tests/test.sh"
+docker compose -p construction exec -T main cat /logs/verifier/reward.txt   # must read 1
 docker compose -p construction down -v --remove-orphans
 docker compose -p construction up -d --build --wait
-SKIP_REPORT_RUBRIC=1 bash tests/test.sh
-cat /logs/verifier/reward.txt   # must read 0
+docker compose -p construction exec -T main bash -c "cd /app/task && SKIP_REPORT_RUBRIC=1 bash tests/test.sh"
+docker compose -p construction exec -T main cat /logs/verifier/reward.txt   # must read 0
 ```
 
 If either check now fails, your QC-stage fix broke something -- go back and
