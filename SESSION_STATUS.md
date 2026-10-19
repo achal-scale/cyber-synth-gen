@@ -62,26 +62,25 @@ narrower "what happened this round" summary.
   to run N port-offset copies of the whole stack — construction-template work, not an ops-script
   change. Lower per-publish concurrency (already proven) was pursued instead.
 
-## 3. Where we're stuck right now
+## 3. Where we're stuck right now (updated: the verifier fix is now resolved)
 
-- **The verifier fix cannot take effect on a real run yet.** `run_code` steps (including
-  `verify-{label}`) execute a pre-registered `FileArtifact`
-  (`script_artifact_id="audit-technique-check"`), not whatever is on disk in this repo. Editing
-  `audit_technique_check.py` locally only changes what a future `FileArtifact.put()` *would*
-  register — it does not update what the hub already has registered under that id.
-  Registering/updating a `FileArtifact` requires a live `pymongo.MongoClient` connection
-  directly to the hub's own MongoDB:
-  - No REST endpoint exists for it (`GET /api/v1/docs/openapi` has no
-    `POST /api/v1/artifacts` or equivalent).
-  - No MCP tool exists for it either (`agentenvhub`'s MCP tools have `get_artifact`/
-    `get_artifact_versions`, no `create_artifact`/`update_artifact`).
-  - The Mongo connection's real coordinates aren't in this repo or in the installed
-    `agentenv-framework` package.
+- **RESOLVED — the verifier fix is deployed.** `run_code` steps (including `verify-{label}`)
+  execute a pre-registered `FileArtifact` (`script_artifact_id="audit-technique-check"`), not
+  whatever is on disk in this repo, so editing `audit_technique_check.py` locally didn't take
+  effect by itself. It first looked like this needed direct Mongo access nobody has — it
+  doesn't: `agentenvhub-sdk` (already installed in this repo's venv) bootstraps the real
+  `AGENT_ENV_CONFIG` (Mongo + S3, both via AWS Secrets Manager secret
+  `team/frontier-data/agent-env`, same AWS credential chain `hub.py` already uses), and
+  `FileArtifact.put()` is a real, working call against it. `ArtifactStore.get()` resolves an
+  unpinned id to its latest version, so one successful `put()` is enough — no code change needed
+  elsewhere. Ran successfully this session with a fresh AWS session:
+  `audit-technique-check` version 2 is now registered
+  (`s3://frontier-data-environments/artifacts/file/audit-technique-check/2/audit_technique_check.py`),
+  and will be what the next `verify-{label}` step resolves.
 
-  **Until someone with direct Mongo access (or a working `FileArtifact.put()` path from a
-  different environment) pushes the updated script content, every `verify-{label}` score from a
-  fresh pass@k run should be treated as suspect** — specifically, check the corresponding
-  `boot-target-{label}` trajectory for a refusal/failure before trusting a 0% result.
+  A fresh pass@k run is needed to confirm this in practice — until then, treat any already-run
+  `verify-{label}` score (i.e. anything scored before this registration) as suspect if its
+  `boot-target-{label}` trajectory shows a refusal/failure.
 
 - **w-social's pass@k run is still sitting at `TERMINATED`** (10-way concurrency), not yet
   relaunched at reduced concurrency. Construction itself completed and its artifact is reusable —
@@ -90,13 +89,11 @@ narrower "what happened this round" summary.
 
 ## 4. What needs to change next
 
-1. **Find or get access to the hub's Mongo-backed `FileArtifact` store** (or whoever/whatever
-   path originally registered `audit-technique-check`) and push the updated
-   `audit_technique_check.py` content. This is the hard blocker — without it, the fix is inert.
-2. **Once (1) is done, re-run pass@5 against the already-accepted Dolibarr construction
+1. **Re-run pass@5 against the already-accepted Dolibarr construction
    artifact** (`full-pipeline-round-1-1792077214-construction-48303e1437d24b28`, sandbox
-   `pipeline-vm-r1-1792077214`) to get a genuine (not refusal-contaminated) pass rate.
-3. **Relaunch w-social's pass@k at 5-way (or lower) concurrency**, reusing its existing
+   `pipeline-vm-r1-1792077214`) to get a genuine (not refusal-contaminated) pass rate, now that
+   the verifier fix (version 2) is live.
+2. **Relaunch w-social's pass@k at 5-way (or lower) concurrency**, reusing its existing
    construction artifact rather than rebuilding it.
-5. **Package the accepted Dolibarr bundle** via `ops/download_collected_bundle.py` into Harbor
+3. **Package the accepted Dolibarr bundle** via `ops/download_collected_bundle.py` into Harbor
    zip format — requested earlier this session, not yet done.

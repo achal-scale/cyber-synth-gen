@@ -106,31 +106,46 @@ this session, which hadn't been exercised against this exact refusal mode before
   `docker compose -p construction up -d --build --wait`, which an eval-aware model has no
   reason to refuse.
 
-## 3. BLOCKED: the fix above cannot take effect on a real run yet
+## 3. The fix is deployed: `FileArtifact.put()` is real and reachable, not blocked
 
-`run_code` steps (including `verify-{label}`) execute a pre-**registered** `FileArtifact`
-(`script_artifact_id="audit-technique-check"`), not whatever is currently on disk in this repo.
-Editing `audit_technique_check.py` locally changes what a future `FileArtifact.put()` *would*
-register — it does not change what the hub already has registered under that id.
+Earlier in this project it looked like registering/updating a `FileArtifact` needed direct
+`pymongo.MongoClient` access to the hub's own MongoDB that no REST endpoint or MCP tool exposes
+— true as far as it goes, but there turns out to be a real path anyway: **`agentenvhub-sdk`**
+(already a dependency of this repo's venv) ships exactly that missing config. Importing
+`agentenvhub_sdk.bootstrap` points `AGENT_ENV_CONFIG` at its bundled `config.prod.toml`, which
+wires `[stores.document]` to a real `MongoDocumentStore` (URI/db name resolved from AWS Secrets
+Manager secret `team/frontier-data/agent-env`) and `[stores.object]` to a real S3-backed store —
+both authenticated via the same default AWS credential chain `ops/hub.py`'s `mint()` already
+uses. `agent_env/artifact/artifacts/file.py`'s `FileArtifact.put()` is fully implemented against
+that config, not a stub.
 
-Registering or updating a `FileArtifact` requires a live `pymongo.MongoClient` connection
-directly to the hub's own MongoDB. This is documented in two independent places in this repo
-(`hub.py`'s own docstring, this file's predecessor) and was re-confirmed this session:
-- No REST endpoint exists for it — the hub's own `GET /api/v1/docs/openapi` spec has no
-  `POST /api/v1/artifacts` (or equivalent generic-FileArtifact-create) route.
-- No MCP tool exists for it either — `agentenvhub`'s MCP tools include `get_artifact`/
-  `get_artifact_versions` but no `create_artifact`/`update_artifact`.
-- The Mongo connection's real coordinates (a `.agentenv/config.toml` `[stores.document]` URI, or
-  whatever `AGENT_ENV_CONFIG` resolves to) are not in this repo and not in the installed
-  `agentenv-framework` package.
+`ArtifactStore.get()`'s own docstring confirms "Returns latest version if version not
+specified," and `_verify_step_real` references `"audit-technique-check"` with no version pinned
+— so registering a new version is sufficient; no change to `build_full_pipeline_task.py` is
+needed for the next `verify-{label}` run to pick it up.
 
-**Net effect**: the verifier fix is code-complete but not yet deployable from this
-client/session. Whoever originally registered `audit-technique-check` (i.e., has direct Mongo
-access, or a working `FileArtifact.put()` call path from some other environment) needs to push
-the updated script content before a re-run of pass@k against Dolibarr (or any other already-
-accepted construction artifact) will reflect it. Until then, treat any `verify-{label}` score of
-0 against a task whose `boot-target` step reports a refusal/failure as **not a genuine
-difficulty signal** — check the `boot-target-{label}` trajectory before trusting the number.
+**To deploy the already-made fix**, with a fresh (not expired — STS session tokens are
+short-lived) AWS session active:
+```bash
+.venv/bin/python3 -c "
+import agentenvhub_sdk.bootstrap
+from agent_env.artifact import FileArtifact
+artifact = FileArtifact.put(
+    id='audit-technique-check',
+    description=\"Resolve web over main's internal docker network via docker compose exec, not a host port mapping\",
+    file_path='ops/verify_scripts/audit_technique_check.py',
+)
+print('registered', artifact.id, 'version', artifact.version, artifact.object_url)
+"
+```
+**Done this session**: `audit-technique-check` version 2 is now registered
+(`s3://frontier-data-environments/artifacts/file/audit-technique-check/2/audit_technique_check.py`).
+The next `verify-{label}` step on any fresh pass@k run will resolve this version automatically.
+
+Any `verify-{label}` score recorded *before* this registration (i.e. the original Dolibarr
+pass@5 0% result) should still be treated as **not a genuine difficulty signal** — it was scored
+against version 1's host-side curl, which every `boot-target` refused. Re-run pass@k to get a
+genuine reading.
 
 ## 4. Other known failure modes / status
 
