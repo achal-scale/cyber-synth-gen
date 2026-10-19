@@ -74,8 +74,19 @@ and passed in by the caller, not assumed or fabricated here.
 | `gate/fleet_gate.py` | Real, live-tested (blocked and measured paths both verified against synthetic fixtures) |
 | `ops/package_deliverable.py` | Real, live-tested (missing-path detection and zip/MANIFEST assembly both verified in isolation; full end-to-end run against a real task is blocked on no existing task yet clearing the sandbox-escape gate) |
 | `ops/launch_fleet.py` | Real, live-tested (full real-container lifecycle verified end to end with a dummy `--agent-cmd`; kill-at-budget path verified via isolated mock test). Missing only the org's actual agent-harness invocation string, which is a caller-supplied argument by design, not something this script assumes |
-| agent-env Task/Env graph wiring | Not started — everything above runs as standalone scripts, not yet an agent-env DAG |
+| agent-env Task/Env graph wiring | **Local-only**: `agentenv_plugin/compose_env.py` registers a docker-compose env against a local agent-env CLI run. Real hub graphs are a separate, newer effort — see below |
 | Automated candidate sourcing | Not started — hand-curated per `sourcing/README.md`'s rules |
+
+## Hub pipeline (`ops/drive_full_pipeline.py`) — status, 2026-10-19
+
+The active track: running this repo's tasks as real two-stage step-DAGs (construction, then
+pass@k) on the hosted `agent-env-hub`, driven by `ops/drive_full_pipeline.py`. **See
+[HUB_PIPELINE_PLAN.md](HUB_PIPELINE_PLAN.md) for the full architecture, the concurrency
+constraint that forced the construction/pass@k split, a real finding about a false-negative
+pass@k result and its fix, and the one thing that fix is currently blocked on** (FileArtifact
+registration needs direct MongoDB access this client doesn't have). The older single-task
+`ops/build_hub_task.py`/fleet-DAG approach this section used to describe has been removed —
+superseded by the split pipeline.
 
 ## Roles
 

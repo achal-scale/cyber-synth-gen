@@ -215,3 +215,33 @@ visual check. Caught by actually parsing the generated file with `json.load()`, 
 it; fixed to single braces and re-verified by parsing again.
 
 `dolibarr-idor` now passes `qc_recheck.py --skip-fleet` cleanly (contract + oracle_noop both OK).
+
+## Split construction/pass@k into two hub tasks; diagnosed a false-negative pass@5 result
+
+Confirmed (two independent 10-way-concurrency runs both `TERMINATED`, one 5-way run completed
+cleanly) that Modal's experimental VM-runtime sandbox creation has a real concurrency ceiling
+well under 10, not a total-DAG-size limit — see `agent_env/providers/sandbox_providers/
+modal_vm_sandbox.py`'s own `RESOURCE_EXHAUSTED` comment. Split `ops/build_full_pipeline_task.py`
+(construction only) from a new `ops/build_passk_extension_task.py` (pass@k only, referencing
+construction's `collect-task-bundle` artifact by id across tasks), orchestrated by
+`ops/drive_full_pipeline.py`. Smoke-tested the one new mechanism this depends on
+(`load_artifact(artifact_id=...)` across two separate task publishes, not just within one) via
+`ops/build_cross_task_artifact_smoketest.py`.
+
+A real Dolibarr pass@5 run against DeepSeek-V4-Flash scored 0/5 on the behavior gate. Trajectory
+inspection found the real cause was not DeepSeek: all 5 `boot-target-deepseek-{1..5}` helper
+turns (Claude Sonnet 5) refused the same docker-compose-ports-patch + /etc/hosts-edit instruction,
+correctly recognizing it as a verification-bypass pattern once they inspected the Harbor eval
+scaffold. Fixed `ops/verify_scripts/audit_technique_check.py` to resolve `web` through `docker
+compose exec -T main` (the same path `judge-rubric`'s `test.sh` already uses successfully)
+instead of a host-side `curl localhost:8080`, and simplified `boot_target`'s prompt to just
+`docker compose up` — removing the thing being refused instead of trying to get it un-refused.
+**This fix cannot take effect on a real run yet**: `run_code` steps execute a pre-registered
+`FileArtifact`, and registering/updating one needs direct MongoDB access this client doesn't
+have (no REST or MCP path exists for it either — see HUB_PIPELINE_PLAN.md §3).
+
+The old local-only `pipeline-review`/gate-era hub scripts this entry's predecessors described
+(`build_hub_task.py`/`build_hub_task_vm.py`, `generate_from_sheet.py`, `launch_fleet.py`,
+`qc_recheck.py`, `package_deliverable.py`, `package_task_zip.py`, `rerun_wpii_pipelines.py`, plus
+one-off smoketest/diagnostic scripts) are fully superseded by the construction/pass@k split
+pipeline and marked for removal; see HUB_PIPELINE_PLAN.md for the current architecture.
