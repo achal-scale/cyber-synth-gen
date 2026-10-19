@@ -240,8 +240,8 @@ instead of a host-side `curl localhost:8080`, and simplified `boot_target`'s pro
 `FileArtifact`, and registering/updating one needs direct MongoDB access this client doesn't
 have (no REST or MCP path exists for it either — see HUB_PIPELINE_PLAN.md §3).
 
-The old local-only `pipeline-review`/gate-era hub scripts this entry's predecessors described
-(`build_hub_task.py`/`build_hub_task_vm.py`, `generate_from_sheet.py`, `launch_fleet.py`,
-`qc_recheck.py`, `package_deliverable.py`, `package_task_zip.py`, `rerun_wpii_pipelines.py`, plus
-one-off smoketest/diagnostic scripts) are fully superseded by the construction/pass@k split
-pipeline and marked for removal; see HUB_PIPELINE_PLAN.md for the current architecture.
+Removed the old local-only `pipeline-review`/gate-era hub scripts this entry's predecessors
+described (`build_hub_task.py`/`build_hub_task_vm.py`, `generate_from_sheet.py`,
+`launch_fleet.py`, `qc_recheck.py`, `package_deliverable.py`, `package_task_zip.py`,
+`rerun_wpii_pipelines.py`, plus one-off smoketest/diagnostic scripts) — all fully superseded by
+the construction/pass@k split pipeline; see HUB_PIPELINE_PLAN.md for the current architecture.
