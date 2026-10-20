@@ -80,10 +80,16 @@ def _harden_prompt(skill_text: str) -> str:
 
 def build_steps(input_bundle_artifact_id: str, construction_sandbox_name: str,
                  harden_model: str, skill_text: str, project_id: str = "",
-                 sandbox_suffix: str | None = None) -> list[dict]:
+                 sandbox_suffix: str | None = None,
+                 vchan_volume: str | None = None) -> list[dict]:
     suffix = sandbox_suffix or str(int(time.time()))
     base.SANDBOX_NAME = f"harden-{suffix}"
-    base.VCHAN_VOLUME = f"{construction_sandbox_name}-vchan"
+    # vchan_volume override: the estate bakes an EXTERNAL volume named
+    # <construction_sandbox_name>-vchan, but a single-task batch_01 bundle declares an
+    # INTERNAL compose volume `vchan` -> runtime name `construction_vchan`. Pass
+    # --vchan-volume construction_vchan for those (the verify-oracle gate reads
+    # /verifier_token off this volume, so a wrong name fails the oracle every round).
+    base.VCHAN_VOLUME = vchan_volume or f"{construction_sandbox_name}-vchan"
     base.PROJECT_ID = project_id
     sb = base.SANDBOX_NAME
 
@@ -171,6 +177,11 @@ def main() -> None:
     ap.add_argument("--harden-skill-file", default=str(_DEFAULT_SKILL),
                     help="path to harden_strategies.md (embedded into the harden prompt at build time)")
     ap.add_argument("--sandbox-suffix", default=None)
+    ap.add_argument("--vchan-volume", default=None,
+                    help="exact runtime vchan volume name holding /verifier_token. Default: "
+                         "<construction-sandbox-name>-vchan (estate external volume). For a "
+                         "single-task batch_01 bundle (internal `vchan` volume) pass "
+                         "`construction_vchan`.")
     ap.add_argument("--publish", action="store_true")
     ap.add_argument("--run", action="store_true")
     ap.add_argument("--litellm-api-key", default=None)
@@ -185,7 +196,7 @@ def main() -> None:
     steps = build_steps(
         args.input_bundle_artifact_id, args.construction_sandbox_name,
         args.harden_model, skill_text, project_id=args.project_id,
-        sandbox_suffix=args.sandbox_suffix,
+        sandbox_suffix=args.sandbox_suffix, vchan_volume=args.vchan_volume,
     )
     print(f"built {len(steps)} harden steps for {args.hub_task_id!r} "
           f"(skill: {skill_path.name}, {len(skill_text)} chars embedded)")

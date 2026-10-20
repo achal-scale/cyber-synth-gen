@@ -68,6 +68,11 @@ def main() -> None:
     ap.add_argument("--with-rubric", dest="behavior_only", action="store_false",
                     help="keep the judge-rubric R gate")
     ap.add_argument("--max-rounds", type=int, default=3)
+    ap.add_argument("--vchan-volume", default=None,
+                    help="exact runtime vchan volume name holding /verifier_token, threaded into "
+                         "BOTH the harden (verify-oracle) and pass@k (verify) legs. Default: "
+                         "<construction-sandbox-name>-vchan (estate). For a single-task batch_01 "
+                         "bundle pass `construction_vchan`.")
     ap.add_argument("--id-prefix", default="can-harden")
     ap.add_argument("--litellm-api-key", required=True)
     args = ap.parse_args()
@@ -89,7 +94,8 @@ def main() -> None:
         print(f"\n=== round {rnd}: HARDEN ({harden_task_id}) input_bundle={current_bundle} ===")
         hsteps = harden_gen.build_steps(current_bundle, args.construction_sandbox_name,
                                         args.harden_model, skill_text,
-                                        project_id=args.project_id, sandbox_suffix=suffix)
+                                        project_id=args.project_id, sandbox_suffix=suffix,
+                                        vchan_volume=args.vchan_volume)
         st, out = hub.publish_task(harden_task_id, args.project_id, hsteps)
         if st not in (200, 201):
             raise SystemExit(f"harden publish failed: HTTP {st} {out}")
@@ -108,7 +114,8 @@ def main() -> None:
                                        args.model, args.model_label, args.harness, args.model_effort,
                                        attempts=args.attempts, max_turns=args.max_turns,
                                        sandbox_suffix=suffix, project_id=args.project_id,
-                                       include_judge_rubric=not args.behavior_only)
+                                       include_judge_rubric=not args.behavior_only,
+                                       vchan_volume=args.vchan_volume)
         st, out = hub.publish_task(passk_task_id, args.project_id, psteps)
         if st not in (200, 201):
             raise SystemExit(f"passk publish failed: HTTP {st} {out}")
