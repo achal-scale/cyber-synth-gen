@@ -59,6 +59,24 @@ def _sh(cmd: str, timeout: int = 20, cwd: str | None = None) -> tuple[int, str, 
     return p.returncode, p.stdout, p.stderr
 
 
+def _diagnostics() -> dict:
+    """Capture container state + recent logs so a verify failure self-documents WHY the
+    app was unreachable -- main crashed? OOM-killed (Exited 137)? clean-exited (0)? never
+    became healthy? These die with the ephemeral VM at teardown, so grab them here, at the
+    moment of failure, and return them in the result for the pass-rate reader / warehouse."""
+    env = "/app/task/environment"
+    rc_ps, ps, ps_err = _sh(
+        "docker compose -p construction ps -a --format "
+        "'{{.Service}}\\t{{.State}}\\t{{.Status}}\\t{{.ExitCode}}'", cwd=env, timeout=20)
+    rc_log, logs, log_err = _sh(
+        "docker compose -p construction logs --no-color --tail=120 main web operator-init 2>&1",
+        cwd=env, timeout=30)
+    return {
+        "containers": ps.strip() if rc_ps == 0 else f"(docker compose ps failed rc={rc_ps}: {ps_err[:200]!r})",
+        "logs_tail": (logs or log_err)[-4000:],
+    }
+
+
 def run(input: dict) -> dict:
     args = input.get("args", {})
     vchan_volume = args["vchan_volume"]  # e.g. "pipeline-vm-vchan"
@@ -71,6 +89,7 @@ def run(input: dict) -> dict:
         return {
             "result": False,
             "reason": f"could not read verifier token from volume '{vchan_volume}': rc={rc} err={err!r}",
+            "diagnostics": _diagnostics(),
         }
     token = out.strip()
 
@@ -85,7 +104,11 @@ def run(input: dict) -> dict:
         cwd="/app/task/environment",
     )
     if rc != 0 or not out.strip():
-        return {"result": False, "reason": f"could not reach /internal/diag/audit: rc={rc} err={err!r}"}
+        return {
+            "result": False,
+            "reason": f"could not reach /internal/diag/audit: rc={rc} err={err!r}",
+            "diagnostics": _diagnostics(),
+        }
 
     try:
         audit = json.loads(out)

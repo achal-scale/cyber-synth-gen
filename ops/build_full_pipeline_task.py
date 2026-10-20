@@ -77,9 +77,20 @@ import hub  # noqa: E402
 SANDBOX_NAME = "pipeline-vm"
 CONSTRUCTION_AGENT = "construction-agent"
 VCHAN_VOLUME = f"{SANDBOX_NAME}-vchan"
+# Cost-attribution project id stamped onto every deploy_sandbox step
+# (metadata.attribution.project_id) so Modal attributes the sandbox spend to a
+# real Scale project rather than an un-attributed shared app. Set by this
+# module's main(), or patched by the pass@k builder, before any steps are built.
+# Empty => no attribution key emitted (the run still works, just un-attributed).
+PROJECT_ID = ""
 
 QC_SKILL_ZIP_URL = "https://github.com/achal-scale/cyber-synth-gen/archive/refs/heads/hubctx-qc-skill.zip"
-VERIFY_SCRIPT_ARTIFACT_ID = "audit-technique-check"  # registered once via FileArtifact.put()
+# The already-registered shared verifier (Achal's v2). We built an enriched copy
+# (audit-technique-check-diag, adds on-failure docker ps/logs) + a deterministic answer-key
+# scrub (scrub-answer-key) -- see ops/verify_scripts/ + ops/register_verify_artifact.py --
+# but both need registering (CodeArtifact/sdk), deferred. Until then, use the shared id so
+# no new registration is required.
+VERIFY_SCRIPT_ARTIFACT_ID = "audit-technique-check"
 
 # Verified live against this hub's /api/v1/models + a real deploy_agent probe
 # (build_deepseek_harness_test.py / its v2 follow-up): "openai/azure_ai/..."
@@ -101,10 +112,19 @@ agent's chat transcript) instead of the default real run_code-based check
 """
 
 
+def _attribution_metadata() -> dict:
+    """Step ``metadata`` carrying cost attribution. agent_env's
+    ``deploy_attribution()`` reads ``metadata["attribution"]`` and forwards it to
+    the sandbox provider, so Modal tags the sandbox/app with ``project_id``.
+    Returns ``{}`` when PROJECT_ID is unset (the run still works, un-attributed)."""
+    return {"attribution": {"project_id": PROJECT_ID}} if PROJECT_ID else {}
+
+
 def _deploy_sandbox_step() -> dict:
     return {
         "id": "deploy-sandbox", "type": "deploy_sandbox",
         "sandbox_name": SANDBOX_NAME, "sandbox_mode": "vm",
+        "metadata": _attribution_metadata(),
         "cpu": 4.0, "memory_mb": 8192, "disk_size_gb": 30,
         "exposed_ports": [8080, 8000],
         # Bumped from 14400s (4h) after a real run's sandbox hit this exact TTL
@@ -355,7 +375,8 @@ def _collect_task_bundle_step() -> dict:
 def _isolated_pentest_branch(label: str, model: str, effort: str | None, harness: str,
                               depends_on_id: str, construction_model: str,
                               max_turns: int = 100,
-                              task_bundle_artifact_id: str | None = None) -> list[dict]:
+                              task_bundle_artifact_id: str | None = None,
+                              include_judge_rubric: bool = True) -> list[dict]:
     """For a model whose harness can't share the construction sandbox's agent
     identity (confirmed for qwen: claude-code-cli's `claude` CLI always sends an
     Anthropic-beta `context_management` param that litellm can't forward to
@@ -391,6 +412,14 @@ def _isolated_pentest_branch(label: str, model: str, effort: str | None, harness
     deploy_sandbox = {
         "id": f"deploy-sandbox-{label}", "type": "deploy_sandbox",
         "sandbox_name": sandbox_name, "sandbox_mode": "vm",
+        "metadata": _attribution_metadata(),
+        # Explicit deps so the pass@k branches run IN PARALLEL. Omitting depends_on makes
+        # the scheduler treat a step as depending on ALL prior steps (task.py
+        # _build_scheduler_state), which serializes every branch behind the previous one --
+        # the accidental cause of the pipeline's long wall-clock (branches ran ~20min apart).
+        #   cross-task pass@k: [] = no deps, fully independent -> all branches concurrent.
+        #   combined mode: gate only on construction's last step, still parallel across branches.
+        "depends_on": [] if task_bundle_artifact_id is not None else [{"task_step_id": depends_on_id}],
         "cpu": 4.0, "memory_mb": 8192, "disk_size_gb": 30,
         "exposed_ports": [8080, 8000],
         # See _deploy_sandbox_step's comment -- same TTL-expiry-looks-like-a-
@@ -436,6 +465,12 @@ def _isolated_pentest_branch(label: str, model: str, effort: str | None, harness
             {"task_step_id": f"deploy-agent-{label}"},
             {"task_step_id": depends_on_id},
         ]
+    # NOTE: answer-key scrub DEFERRED. The deterministic scrub-{label} run_code step +
+    # scrub_bundle.py exist (ops/verify_scripts/) but need a registered scrub-answer-key
+    # artifact, which needs the agentenvhub-sdk/CodeArtifact setup -- not done yet. Until
+    # then the solver CAN read /app/task/solution (known, accepted: the verifier still
+    # requires a real exploit, and observed solvers discover vulns independently, not by
+    # copying). Boot-target is clean ("just boot"), so no boot-refusal flakiness.
     boot_target = {
         "id": f"boot-target-{label}", "type": "prompt_agent", "agent_name": agent_name,
         "depends_on": [{"task_step_id": f"load-task-bundle-{label}"}],
@@ -486,27 +521,24 @@ def _isolated_pentest_branch(label: str, model: str, effort: str | None, harness
         ),
         "fail_task_on_error": False,
     }
-    collect = {
-        "id": f"collect-{label}", "type": "collect_artifacts",
-        # sandbox_name (THIS branch's own isolated sandbox), not agent_name --
-        # agent_name mode needs container discovery, which install_agent
-        # (host mode) never satisfies; the real host-side path for the
-        # agent_logs volume is /var/lib/docker/volumes/<project>_agent_logs/_data.
-        "sandbox_name": sandbox_name,
-        "depends_on": [{"task_step_id": f"pentest-{label}"}],
-        "artifact_paths": [
-            "/var/lib/docker/volumes/construction_agent_logs/_data/submission.txt",
-            "/var/lib/docker/volumes/construction_agent_logs/_data/report.md",
-        ],
-        "artifacts_key": f"submission-{label}",
-        "fail_task_on_error": False,
-    }
-    judge = _judge_rubric_step(label, agent_name, construction_model, timeout_seconds=10800)
-    # NOTE: verify-{label} and collect-final-bundle-{label} are appended by the
-    # caller (build_steps), in that order, AFTER this branch's steps -- both
-    # depend on step ids ("verify-{label}") that must appear earlier in the
-    # published steps list than anything referencing them.
-    return [deploy_sandbox, deploy_agent, load_bundle, boot_target, pentest, collect, judge]
+    # NOTE: no per-branch `collect-{label}` step. It only packaged this solver's raw
+    # submission.txt/report.md (from the agent_logs volume) for human inspection -- no
+    # pipeline consumer (verify grades off the audit endpoint, not the file). It was also
+    # the sole failure source: on unsolved/partially-written branches collect_artifacts
+    # raised, and once branches run in parallel, >1 such failure in one scheduler batch
+    # fails the whole task. Dropping it restores the design intent (one branch never kills
+    # the others). TODO: re-add a TOLERANT submission capture if human review needs it.
+    # verify-{label} and collect-final-bundle-{label} are appended by the caller
+    # (build_steps) AFTER this branch's steps; verify now depends on pentest-{label}.
+    branch = [deploy_sandbox, deploy_agent, load_bundle, boot_target, pentest]
+    # The judge-rubric (R gate) is the ONLY consumer-less step here: nothing
+    # depends_on judge-rubric-{label}, and verify-{label}'s behavior score comes
+    # solely from audit_technique_check.py. Dropping it yields the behavior-only
+    # (flag 0/1) MVP -- at the cost of the downloadable bundle no longer carrying
+    # results/{label}/reward.json (which only judge-rubric copies onto the host).
+    if include_judge_rubric:
+        branch.append(_judge_rubric_step(label, agent_name, construction_model, timeout_seconds=10800))
+    return branch
 
 
 def _judge_rubric_step(label: str, agent_name: str, judge_model: str, timeout_seconds: int = 3600) -> dict:
@@ -588,14 +620,18 @@ def _verify_step_real(label: str, sandbox_name: str | None = None) -> dict:
     return {
         "id": f"verify-{label}", "type": "run_code",
         "sandbox_name": sandbox_name if sandbox_name is not None else SANDBOX_NAME,
-        "depends_on": [{"task_step_id": f"collect-{label}"}],
+        # Depend on pentest directly (the per-branch collect step was removed). Ordering
+        # only -- verify reads the app's audit endpoint + the vchan token, not pentest's output.
+        "depends_on": [{"task_step_id": f"pentest-{label}"}],
         "script_artifact_id": VERIFY_SCRIPT_ARTIFACT_ID,
         "result_id": f"verify-{label}",
         "timeout_seconds": 60,
         "args": {"vchan_volume": VCHAN_VOLUME, "target_port": 8080},
-        # Must run BEFORE reset-target-{label} reboots the app (depends_on is only
-        # ordering vs. collect-{label}, but build_steps places this before the
-        # reset step in the list, and reset depends on this step's completion).
+        # Tolerant: a verify that errors (e.g. can't reach /internal/diag/audit on one
+        # branch) records a non-result for THAT branch -- it must never fail the whole
+        # parallel run (same per-branch isolation as every other step here). The pass-rate
+        # reader treats a missing/errored verify as a non-solve.
+        "fail_task_on_error": False,
     }
 
 
@@ -683,6 +719,9 @@ def main():
     ap.add_argument("--sandbox-suffix", default=None)
     ap.add_argument("--publish", action="store_true")
     args = ap.parse_args()
+
+    global PROJECT_ID
+    PROJECT_ID = args.project_id
 
     base_contexts = _parse_base_contexts(args.base_context)
     steps = build_steps(
