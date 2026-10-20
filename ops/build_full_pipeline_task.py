@@ -376,7 +376,8 @@ def _isolated_pentest_branch(label: str, model: str, effort: str | None, harness
                               depends_on_id: str, construction_model: str,
                               max_turns: int = 100,
                               task_bundle_artifact_id: str | None = None,
-                              include_judge_rubric: bool = True) -> list[dict]:
+                              include_judge_rubric: bool = True,
+                              pentest_timeout_seconds: int = 86400) -> list[dict]:
     """For a model whose harness can't share the construction sandbox's agent
     identity (confirmed for qwen: claude-code-cli's `claude` CLI always sends an
     Anthropic-beta `context_management` param that litellm can't forward to
@@ -497,12 +498,12 @@ def _isolated_pentest_branch(label: str, model: str, effort: str | None, harness
     pentest = {
         "id": f"pentest-{label}", "type": "prompt_agent", "agent_name": agent_name,
         "depends_on": [{"task_step_id": f"boot-target-{label}"}],
-        # No real wall-clock limit on a pass@k trial -- 86400s (24h) is a pure
-        # safety backstop against a genuinely hung agent, not the real budget.
-        # `max_turns` is the actual governing limit per spec (a step count, not
-        # a clock), so a slow-but-making-progress trial is never killed early
-        # just because it's thinking carefully.
-        "timeout_seconds": 86400,
+        # Wall-clock backstop. Default 86400s (24h) = effectively no limit: max_turns is
+        # the real governing limit per spec, so a slow-but-progressing trial is never cut
+        # for thinking carefully. Lower it (--pentest-timeout 1800) ONLY for fast testing,
+        # where cutting a straggler branch (a tolerant MISSING, not a run failure) beats
+        # waiting 50+ min on one hung branch. Keep the 24h default in production.
+        "timeout_seconds": pentest_timeout_seconds,
         "max_turns": max_turns,
         "prompt_id": f"pentest-{label}",
         "model": model,

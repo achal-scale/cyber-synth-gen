@@ -46,7 +46,9 @@ def build_steps(task_bundle_artifact_id: str, construction_sandbox_name: str,
                  construction_model: str = "anthropic/claude-sonnet-5",
                  attempts: int = 10, max_turns: int = 100,
                  sandbox_suffix: str | None = None,
-                 project_id: str = "", include_judge_rubric: bool = True) -> list[dict]:
+                 project_id: str = "", include_judge_rubric: bool = True,
+                 pentest_timeout_seconds: int = 86400,
+                 vchan_volume: str | None = None) -> list[dict]:
     # _isolated_pentest_branch/_verify_step_real/_judge_rubric_step read these
     # as module globals on `base`, not parameters -- patch them before building
     # any steps. SANDBOX_NAME here is THIS task's own attempt-sandbox prefix
@@ -56,7 +58,11 @@ def build_steps(task_bundle_artifact_id: str, construction_sandbox_name: str,
     # stamped onto each deploy_sandbox step so Modal attributes the spend.
     suffix = sandbox_suffix or str(int(time.time()))
     base.SANDBOX_NAME = f"passk-{suffix}"
-    base.VCHAN_VOLUME = f"{construction_sandbox_name}-vchan"
+    # vchan_volume override: the estate bakes an EXTERNAL volume named
+    # <construction_sandbox_name>-vchan, but a single-task batch_01 bundle declares an
+    # INTERNAL compose volume `vchan` -> runtime name `construction_vchan`. Pass
+    # --vchan-volume construction_vchan for those.
+    base.VCHAN_VOLUME = vchan_volume or f"{construction_sandbox_name}-vchan"
     base.PROJECT_ID = project_id
 
     steps = []
@@ -69,6 +75,7 @@ def build_steps(task_bundle_artifact_id: str, construction_sandbox_name: str,
             max_turns=max_turns,
             task_bundle_artifact_id=task_bundle_artifact_id,
             include_judge_rubric=include_judge_rubric,
+            pentest_timeout_seconds=pentest_timeout_seconds,
         )
         sandbox_name = f"{base.SANDBOX_NAME}-{label}"
         steps.append(base._verify_step_real(label, sandbox_name=sandbox_name))
@@ -92,7 +99,16 @@ def main():
                      help="model used for boot-target/judge-rubric helper steps")
     ap.add_argument("--attempts", type=int, default=10)
     ap.add_argument("--max-turns", type=int, default=100)
+    ap.add_argument("--pentest-timeout", type=int, default=86400,
+                     help="per-pentest wall-clock backstop (seconds). Default 86400 (24h, ~no "
+                          "limit; max_turns governs). Set ~1800 (30m) ONLY for fast testing to "
+                          "cut a straggler branch (becomes a tolerant MISSING, not a run failure).")
     ap.add_argument("--sandbox-suffix", default=None)
+    ap.add_argument("--vchan-volume", default=None,
+                     help="exact runtime vchan volume name holding /verifier_token. Default: "
+                          "<construction-sandbox-name>-vchan (estate external volume). For a "
+                          "single-task batch_01 bundle (internal `vchan` volume) pass "
+                          "`construction_vchan`.")
     ap.add_argument("--behavior-only", action="store_true",
                      help="drop the judge-rubric (R gate) step; score behavior/flag (0/1) only "
                           "-- the KangKang behavior-only MVP. Also skips the per-attempt Sonnet "
@@ -109,6 +125,8 @@ def main():
         attempts=args.attempts, max_turns=args.max_turns,
         sandbox_suffix=args.sandbox_suffix,
         project_id=args.project_id, include_judge_rubric=not args.behavior_only,
+        pentest_timeout_seconds=args.pentest_timeout,
+        vchan_volume=args.vchan_volume,
     )
     print(f"built {len(steps)} steps for {args.hub_task_id!r} "
           f"({args.attempts} attempts, max_turns={args.max_turns})")
