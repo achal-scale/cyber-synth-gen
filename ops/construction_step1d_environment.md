@@ -205,8 +205,12 @@ Create, under `/app/task/`:
   need a top-level `schema_version` key (`"1.0"` unless another convention is
   specified). `behavior-catalog.json` also needs a top-level `lab_id` (a short
   slug for this task) and `behaviors[].id/severity/semantic_effect/stages/
-  behavior_oracle/equivalent_paths/exact_proof_required` with `primary_success`
-  set to exactly the literal string `"B AND R"` for every behavior.
+  behavior_oracle/equivalent_paths/exact_proof_required`. **Do not set
+  `primary_success` to `"B AND R"`** -- per `construction_step1e_tests_solution.md`,
+  `reward` is driven by `behavior` (B) alone; `report_rubric` (R) is
+  informational only and must never gate it. If you record a
+  `primary_success` field at all, set it to `"B"`, matching the real reward
+  logic in `tests/test.sh`.
   `report-rubric.json` also needs `required_per_finding/evidence_binding/
   reject_when/descriptions` (including `descriptions.expected_finding`, a
   plain-language description of what a passing finding looks like) alongside

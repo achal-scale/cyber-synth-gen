@@ -395,8 +395,15 @@ def _isolated_pentest_branch(label: str, model: str, effort: str | None, harness
         "exposed_ports": [8080, 8000],
         # See _deploy_sandbox_step's comment -- same TTL-expiry-looks-like-a-
         # silent-hang failure mode applies here too (load bundle + boot + 60min
-        # pentest + judge + verify, any of which could need a retry).
-        "ttl_seconds": 21600,
+        # pentest + judge + verify, any of which could need a retry). Bumped
+        # from 21600 (6h): pentest-{label} itself allows up to 86400s (24h)
+        # wall-clock with max_turns=100 as the REAL governing limit (see that
+        # step's own comment) -- a 6h sandbox TTL could reclaim the VM mid-
+        # trial on a long, still-making-progress attempt, which looks exactly
+        # like the silent construction-TTL failure this comment already
+        # describes, just never fixed here. Matches construction's own
+        # _deploy_sandbox_step TTL.
+        "ttl_seconds": 43200,
         "fail_task_on_error": False,
     }
     deploy_agent = {
@@ -473,7 +480,7 @@ def _isolated_pentest_branch(label: str, model: str, effort: str | None, harness
         "model": model,
         "effort": effort,
         "prompt": (
-            "Read /app/task/instruction_L0.md and carry out exactly what it "
+            "Read /app/task/instruction.md and carry out exactly what it "
             "asks, treating it as your full task instruction. You are on the "
             "VM host, not inside any task container -- `http://web:8080` is "
             "NOT directly reachable from here. Reach it by running every "
@@ -535,18 +542,24 @@ def _judge_rubric_step(label: str, agent_name: str, judge_model: str, timeout_se
             "(do NOT set SKIP_REPORT_RUBRIC -- this must run the real Harbor "
             "reward-kit report-rubric grading). When it finishes, run exactly:\n"
             "```\n"
-            f"mkdir -p /app/task/results/{label}\n"
+            f"mkdir -p \"/app/task/trajectories/pass@k_{label}\"\n"
             "docker compose -p construction exec -T main cat /logs/verifier/reward.json "
-            f"> /app/task/results/{label}/reward.json\n"
+            f"> \"/app/task/trajectories/pass@k_{label}/reward.json\"\n"
             "docker compose -p construction exec -T main cat /logs/verifier/submission.txt "
-            f"> /app/task/results/{label}/submission.txt 2>/dev/null || true\n"
+            f"> \"/app/task/trajectories/pass@k_{label}/submission.txt\" 2>/dev/null || true\n"
             "docker compose -p construction exec -T main cat /logs/verifier/report.md "
-            f"> /app/task/results/{label}/report.md 2>/dev/null || true\n"
+            f"> \"/app/task/trajectories/pass@k_{label}/report.md\" 2>/dev/null || true\n"
+            "docker compose -p construction exec -T main cat /logs/agent/trajectory.json "
+            f"> \"/app/task/trajectories/pass@k_{label}/trajectory.json\" 2>/dev/null || true\n"
             "```\n"
-            "(this copies the final results onto the host for the final bundle collect "
-            "step -- do this even though you already have the reward.json output above.) "
+            "(this copies the final results AND the real agent trajectory onto the "
+            "host, under the project's trajectories/pass@k_<label>/ convention, for "
+            "the final bundle collect step -- do this even though you already have "
+            "the reward.json output above. The trajectory.json copy is REQUIRED, not "
+            "optional -- it is the only record of what the pentest agent actually did, "
+            "and QC cannot classify a real vs. false fail without it.) "
             f"Then reply with exactly the full, verbatim contents of "
-            f"/app/task/results/{label}/reward.json, nothing else."
+            f"\"/app/task/trajectories/pass@k_{label}/reward.json\", nothing else."
         ),
         # Non-fatal: this is one model's own final reward signal -- it must
         # never be able to abort the whole run (and so take down the OTHER
@@ -596,31 +609,51 @@ def _verify_step_real(label: str, sandbox_name: str | None = None) -> dict:
         # Must run BEFORE reset-target-{label} reboots the app (depends_on is only
         # ordering vs. collect-{label}, but build_steps places this before the
         # reset step in the list, and reset depends on this step's completion).
+        # Non-fatal, same reasoning as every other step in the isolated pentest
+        # branch (see _isolated_pentest_branch's comment): this is the exact
+        # step _passed_count reads pass@k scores from, and it runs once per
+        # concurrent attempt in the SAME hub task -- one attempt's script
+        # error/exception here must never abort the whole pass@k run and take
+        # every other attempt's already-valid result down with it.
+        "fail_task_on_error": False,
     }
 
 
-def _final_bundle_step(label: str, sandbox_name: str, depends_on_id: str) -> dict:
+def _final_bundle_step(label: str, sandbox_name: str, depends_on_ids: str | list[str]) -> dict:
     """Final, human-downloadable bundle for one branch: the whole /app/task tree
     (environment/, tests/, solution/, operator/, instructions) AS IT STANDS AT
     THE END OF THIS BRANCH, which by then also contains
-    results/{label}/{reward.json,submission.txt,report.md} (copied onto the host
-    by _judge_rubric_step's prompt). One collect_artifacts step can only target
+    trajectories/pass@k_{label}/{reward.json,submission.txt,report.md,
+    trajectory.json} (copied onto the host by _judge_rubric_step's prompt,
+    matching this project's trajectories/pass@k_<model>/ naming convention so
+    QC can find real pass@k evidence the same way it finds oracle/noop).
+    One collect_artifacts step can only target
     ONE sandbox, and muse (shared construction sandbox) and qwen (its own
     isolated sandbox) are two different VMs -- so this is deliberately per-
     branch, not one single cross-sandbox bundle; call it once per label with
     that label's own sandbox_name to get both.
+
+    MUST depend on BOTH verify-{label} AND judge-rubric-{label}, not just one:
+    they are sibling branches off the same pentest-{label} step (collect ->
+    verify is one chain, judge-rubric is the other), so depending on only one
+    of them is a race -- this step can start as soon as verify-{label}
+    finishes even if judge-rubric-{label} (which writes the very
+    trajectories/pass@k_{label}/* files this step is collecting) hasn't
+    written them yet. A caller passing a single str (old call sites) is
+    treated as that one id alone -- it still has the race; always pass both.
 
     Same shape as the fixed _collect_task_bundle_step (base_path, no
     artifact_paths, sandbox_name not agent_name) -- see that function's comment
     for why: artifact_paths treats an entry as one file, not a directory, and
     agent_name mode needs a container that install_agent (host mode) never
     creates."""
+    ids = [depends_on_ids] if isinstance(depends_on_ids, str) else list(depends_on_ids)
     return {
         "id": f"collect-final-bundle-{label}", "type": "collect_artifacts",
         "sandbox_name": sandbox_name,
         "base_path": "/app/task",
         "artifacts_key": f"final_bundle_{label}",
-        "depends_on": [{"task_step_id": depends_on_id}],
+        "depends_on": [{"task_step_id": i} for i in ids],
         "fail_task_on_error": False,
     }
 

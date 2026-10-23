@@ -68,7 +68,9 @@ def build_steps(task_bundle_artifact_id: str, construction_sandbox_name: str,
         )
         sandbox_name = f"{base.SANDBOX_NAME}-{label}"
         steps.append(base._verify_step_real(label, sandbox_name=sandbox_name))
-        steps.append(base._final_bundle_step(label, sandbox_name, f"verify-{label}"))
+        steps.append(base._final_bundle_step(
+            label, sandbox_name, [f"verify-{label}", f"judge-rubric-{label}"]
+        ))
     return steps
 
 
